@@ -153,9 +153,50 @@ function windowsDetail(v: BalanceView): BalanceBubbleRow[] {
   return rows.length > 0 ? rows : windowsRows(v);
 }
 
-/** windows 形态的展示规则：百分比取三窗口最大，展开态逐窗口一行。 */
+/** 紧凑计数：1.2B / 96.0M / 478.3K，千以下取整。固定一位小数——同一页三个数字宽度稳定，不随取值跳动。 */
+function compactCount(n: number): string {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(Math.round(n));
+}
+
+/**
+ * 第三页：本期累计用量。一行 `usage` 承载整张卡，两端摆成三行两列——
+ * 「Token / 总量」「输入 / 输出」「本期请求数 / 花费」，总量是唯一的大字。
+ *
+ * 服务商没给这项数据时返回 undefined，由页数判定决定气泡只有两页；给的一半数字不会被拼进来。
+ */
+function windowsUsage(v: BalanceView): BalanceBubbleRow[] | undefined {
+  const u = v.usage;
+  if (!u) return undefined;
+  const total = compactCount(u.totalTokens);
+  const input = compactCount(u.inputTokens) + ' 入';
+  const output = compactCount(u.outputTokens) + ' 出';
+  const period = '本期 ' + u.requests + ' 次';
+  const spend = '$' + u.spentUsd.toFixed(2);
+  // 比例条用真实占比：输入通常占绝对多数，条看起来几乎单色是事实，不做最小宽度放大。
+  const sum = u.inputTokens + u.outputTokens;
+  const inputPercent = sum > 0 ? (u.inputTokens / sum) * 100 : undefined;
+  return [
+    {
+      role: 'usage',
+      text: 'Token ' + total + ' · ' + input + ' / ' + output + ' · ' + period + ' · ' + spend,
+      title: 'Token',
+      total,
+      input,
+      output,
+      period,
+      spend,
+      inputPercent,
+    },
+  ];
+}
+
+/** windows 形态的展示规则：百分比取三窗口最大，展开态逐窗口一行，有用量时多一页。 */
 export const windowsHandler: ShapeHandler = {
   percent: windowsPercent,
   rows: windowsRows,
   detail: windowsDetail,
+  usage: windowsUsage,
 };

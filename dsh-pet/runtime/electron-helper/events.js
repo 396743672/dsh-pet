@@ -197,7 +197,7 @@ PetSprite.prototype.showBalanceNow = function showBalanceNow(state, manual) {
   this.bubbleOn = true;
   this.balanceWrap = false; // 正常余额气泡用常规尺寸，别继承上一次文字说明的紧凑变体
   this.balanceView = S.balanceBubbleView(state);
-  this.balanceState = state; // 展开态要拿完整读数现算三窗口行（balanceView 只是收起态那两行）
+  this.balanceState = state; // 展开态按页现算窗口明细与用量行（balanceView 只是收起态那两行）
   this.balanceViewIndex = 0; // 新一轮查询一律从第一页开始（与浏览器一致）
   this.renderBubble();
   // 气泡 10s 定时消失（与动画解耦：即使动画被点击/拖拽打断，气泡也按时收起；重复触发先清旧定时器）
@@ -291,8 +291,6 @@ function applySayLeaf(petId, leaf) {
     if (said.kind === 'clear') s.clearWhisper();
     else s.showWhisper(said.text, said.image, said.url, said.duration, said.anim);
   }
-  // 只有本窗口点过菜单/发过对话才播：标记在发起端，没发起的窗口读到空标记就不出声
-  if (said.kind === 'say') S.playPendingVoice(said.text);
 }
 
 /** 工作状态叶子 → 各宠物切档位动画 + 气泡（含回到空闲：state=null 用于收起常驻气泡） */

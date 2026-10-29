@@ -228,10 +228,45 @@ describe('parseCommandCode —— 必填缺失/非法一律抛错（绝不伪造
       assert.equal(data.monthlyResetsAt, undefined);
     }
   });
+
+  test('区间用量：totalTokens / 输入 / 输出 / 请求数 / 花费 → usage（气泡第三页）', () => {
+    const data = dataOf(
+      parseCommandCode(
+        { credits: { monthlyCredits: 70 } },
+        undefined,
+        {
+          totalCost: 1.5968,
+          totalTokens: 95967948,
+          totalTokensIn: 95489675,
+          totalTokensOut: 478273,
+          totalCount: 745,
+        },
+        'commandcode',
+      ),
+    );
+    assert.deepEqual(data.usage, {
+      totalTokens: 95967948,
+      inputTokens: 95489675,
+      outputTokens: 478273,
+      requests: 745,
+      spentUsd: 1.5968,
+    });
+  });
+
+  test('区间用量字段不全 → 不出这一页（不拿 0 顶替）', () => {
+    for (const summary of [
+      { totalCost: 1 },
+      { totalCost: 1, totalTokens: 10, totalTokensIn: 8, totalTokensOut: 2 },
+      { totalCost: 1, totalTokens: 10, totalTokensIn: 8, totalTokensOut: 2, totalCount: 'x' },
+    ]) {
+      const data = dataOf(parseCommandCode({ credits: { monthlyCredits: 70 } }, undefined, summary, 'commandcode'));
+      assert.equal(data.usage, undefined, '缺字段时必须整页缺省：' + JSON.stringify(summary));
+    }
+  });
 });
 
 describe('queryBalance —— 网络链路（fetch stub）', () => {
-  test('四个接口按序请求，Bearer 注入，orgId / since 正确回填', async () => {
+  test('四个接口按序请求，Bearer 注入，orgId 回填（summary 不带 since）', async () => {
     const stub = stubFetch(goatRoute);
     const refs: string[] = [];
     try {
@@ -244,7 +279,7 @@ describe('queryBalance —— 网络链路（fetch stub）', () => {
         'https://api.commandcode.ai/alpha/whoami?limits=1',
         'https://api.commandcode.ai/alpha/billing/credits?orgId=org-1',
         'https://api.commandcode.ai/alpha/billing/subscriptions?orgId=org-1',
-        'https://api.commandcode.ai/alpha/usage/summary?since=2026-09-13T01%3A01%3A27.000Z&orgId=org-1',
+        'https://api.commandcode.ai/alpha/usage/summary?orgId=org-1',
       ]);
       assert.deepEqual([...new Set(stub.auths)], ['Bearer k-123']);
       assert.deepEqual(refs, ['COMMANDCODE_API_KEY']);
@@ -265,8 +300,8 @@ describe('queryBalance —— 网络链路（fetch stub）', () => {
       assert.equal(stub.calls[2], 'https://api.commandcode.ai/alpha/billing/subscriptions');
       assert.equal(
         stub.calls[3],
-        'https://api.commandcode.ai/alpha/usage/summary?since=2026-09-13T01%3A01%3A27.000Z',
-        'orgId 没有就不带，但订阅拿到的当期起始时间照常带（since）',
+        'https://api.commandcode.ai/alpha/usage/summary',
+        'orgId 没有就不带；summary 也不带 since——服务端默认区间就是计费周期',
       );
     } finally {
       stub.restore();
@@ -283,7 +318,7 @@ describe('queryBalance —— 网络链路（fetch stub）', () => {
       assert.equal(
         stub.calls[3],
         'https://api.commandcode.ai/alpha/usage/summary?orgId=org-1',
-        '没拿到当期起始时间就不带 since（默认区间由服务端决定，插件不猜）',
+        '订阅失败只缺重置时间；summary 一律不带 since（区间由服务端按计费周期决定）',
       );
     } finally {
       stub.restore();

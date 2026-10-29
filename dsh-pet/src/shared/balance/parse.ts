@@ -7,7 +7,7 @@
  * @module dsh-pet/src/shared/balance/parse
  */
 
-import type { BalanceState, CustomNode, CustomTag, MoneyWalletView, RawBalanceResult } from './types.ts';
+import type { BalanceState, BalanceUsage, CustomNode, CustomTag, MoneyWalletView, RawBalanceResult } from './types.ts';
 
 // 自定义气泡节点树的白名单：第三方交来的树是外部输入，解析层负责裁进「一个气泡能画出来」的
 // 范围，渲染器只画不再校验。
@@ -162,6 +162,21 @@ function optNum(value: unknown): number | undefined | null {
 }
 
 /**
+ * 解析区间累计用量：缺省返回 undefined（服务商没有这项数据），出现但不完整或非法返回 null。
+ *
+ * 五个数字缺一不可——少一个就拼不出一页可信的用量，宁可这一拍整片不显示，也不拿 0 顶替。
+ */
+function parseUsage(raw: unknown): BalanceUsage | undefined | null {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== 'object') return null;
+  const u = raw as Record<string, unknown>;
+  const fields = [u.totalTokens, u.inputTokens, u.outputTokens, u.requests, u.spentUsd].map(optNum);
+  if (fields.some((n) => typeof n !== 'number')) return null;
+  const [totalTokens, inputTokens, outputTokens, requests, spentUsd] = fields as number[];
+  return { totalTokens, inputTokens, outputTokens, requests, spentUsd };
+}
+
+/**
  * 把 host 的余额原始响应（`sections.balance` 叶子）转成客户端视图。
  *
  * 形状非法或 shape 不认识返回 null，消费端据此跳过这一拍；这里不抛异常，理由见模块头。
@@ -189,6 +204,7 @@ export function toBalanceState(raw: unknown): BalanceState | null {
     const rollingCapUsd = optNum(d.rollingCapUsd);
     const weeklyCapUsd = optNum(d.weeklyCapUsd);
     const monthlyCapUsd = optNum(d.monthlyCapUsd);
+    const usage = parseUsage(d.usage);
     // 月度窗口是这份数据的底线：缺了或非法即认不出响应，滚动窗、周窗口与各窗口额度都是可选。
     if (monthly === undefined || monthly === null) return null;
     // 可选窗口出现但非法，同样整拍跳过：不把坏数字送进展示层。
@@ -197,7 +213,8 @@ export function toBalanceState(raw: unknown): BalanceState | null {
       weekly === null ||
       rollingCapUsd === null ||
       weeklyCapUsd === null ||
-      monthlyCapUsd === null
+      monthlyCapUsd === null ||
+      usage === null
     ) {
       return null;
     }
@@ -211,6 +228,8 @@ export function toBalanceState(raw: unknown): BalanceState | null {
       rollingCapUsd,
       weeklyCapUsd,
       monthlyCapUsd,
+      // 没有用量就不带这个键：页数由「键在不在」判定，写 undefined 会让消费方两种写法都判一次。
+      ...(usage ? { usage } : {}),
       rollingLabel: typeof d.rollingLabel === 'string' && d.rollingLabel.length > 0 ? d.rollingLabel : undefined,
       rollingResetsAt: typeof d.rollingResetsAt === 'string' ? d.rollingResetsAt : undefined,
       weeklyResetsAt: typeof d.weeklyResetsAt === 'string' ? d.weeklyResetsAt : undefined,

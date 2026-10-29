@@ -17,6 +17,8 @@ export interface ShapeHandler {
   rows(v: BalanceView): BalanceBubbleRow[];
   /** 展开态气泡行；缺省表示没有额外读数，调用方回落到 rows */
   detail?(v: BalanceView): BalanceBubbleRow[];
+  /** 第三页：区间累计用量；返回 undefined 表示该服务商没有这项数据，气泡只有两页 */
+  usage?(v: BalanceView): BalanceBubbleRow[] | undefined;
   /** custom：多页节点树，第一项为初始页；缺省表示该形态不走树 */
   views?(v: BalanceView): CustomNode[] | undefined;
 }

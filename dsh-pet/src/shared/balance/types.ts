@@ -76,6 +76,8 @@ export interface RawBalanceResult {
     weeklyCapUsd?: unknown;
     monthlyCapUsd?: unknown;
     rollingLabel?: unknown;
+    /** windows：区间累计用量（可选页），给不全则整页不显示 */
+    usage?: unknown;
     /** money：多币种钱包数组，每项一个币种 */
     wallets?: unknown;
     tier?: unknown;
@@ -98,6 +100,19 @@ export interface RawBalanceResult {
 
 /** 计价档位装饰：由服务商算好后随数据带出，展示层原样渲染 */
 export type PricingTier = 'peak' | 'idle';
+
+/**
+ * 区间累计用量（本期）：目前只有 commandcode 回传，是气泡的第三页。
+ *
+ * 与窗口百分比互不替代——那份是实时额度，这份是批量聚合的账目，可能滞后数分钟；tokens 是毛值。
+ */
+export interface BalanceUsage {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+  spentUsd: number;
+}
 
 /** 已解析的余额视图，供展示与档位计算使用 */
 export interface BalanceView {
@@ -123,6 +138,8 @@ export interface BalanceView {
   monthlyCapUsd?: number;
   /** 滚动窗展示名，由服务商自报，缺省回落到 DEFAULT_ROLLING_LABEL */
   rollingLabel?: string;
+  /** windows：区间累计用量；缺省表示该服务商没有这项数据，气泡只有两页 */
+  usage?: BalanceUsage;
   /** money：多币种钱包，每项一个币种 */
   wallets?: MoneyWalletView[];
   /** money：计价档位装饰，缺省则渲染成不带峰谷的余额 */
@@ -191,6 +208,26 @@ export type BalanceBubbleRow =
       tone: QuotaTone;
       usedText: string;
       resetText: string;
+    }
+  | {
+      /** 用量页：三行两列的卡片，文本已由 shared 排好，渲染端只负责着色与对齐 */
+      role: 'usage';
+      /** 纯文本兜底，认不出该 role 的消费方也能把这块显示成一行 */
+      text: string;
+      /** 左上：固定标签 */
+      title: string;
+      /** 右上：区间总量（大字，整卡唯一的视觉焦点） */
+      total: string;
+      /** 第二行左：输入 */
+      input: string;
+      /** 第二行右：输出 */
+      output: string;
+      /** 第三行左：区间与请求数 */
+      period: string;
+      /** 第三行右：花费 */
+      spend: string;
+      /** 输入占比（0-100），驱动进出比例条；总量为 0 时缺省，此时不画条 */
+      inputPercent?: number;
     };
 
 /** 不可用状态是否弹文字说明的判定结果 */

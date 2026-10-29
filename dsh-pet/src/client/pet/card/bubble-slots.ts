@@ -5,7 +5,7 @@
  * 不变量：同一时刻只渲染一个气泡，优先级依次为终态任务、说话、余额、非终态任务。
  * @module dsh-pet/src/client/pet/card/bubble-slots
  */
-import { customViews, type BalanceState } from '../../../shared/balance/index.ts';
+import { balancePageCount as balancePageCountOf, type BalanceState } from '../../../shared/balance/index.ts';
 import { subscribeVoiceState, type VoiceState } from '../../../shared/voice.ts';
 import { BUBBLE_DURATION_MS } from '../timings.ts';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
@@ -62,15 +62,13 @@ export function decideBubbleSlot(input: BubbleSlotInput): BubbleSlot {
 /**
  * 余额气泡的可翻页数。
  *
- * custom 形态由第三方决定页数，windows 两页（收起与展开），其余形态点开没有新内容。
+ * 页数规则归 shared（与每页内容同源），这里只补一个「还没有结果」的兜底。
  *
- * @param balance - 最近一次余额结果。
+ * @param balance - 最近一次余额结果；`null` 表示这一拍还没有数据。
  * @returns 页数，至少 1。
  */
 export function balancePageCount(balance: BalanceState | null): number {
-  if (!balance || !balance.ok) return 1;
-  if (balance.shape === 'custom') return Math.max(1, customViews(balance)?.length ?? 1);
-  return balance.shape === 'windows' ? 2 : 1;
+  return balance ? balancePageCountOf(balance) : 1;
 }
 
 /** 余额气泡组件；props 与 `client/bubble.ts` 的 BalanceBubble 一致。 */

@@ -3230,6 +3230,30 @@ components:
         monthlyCapUsd:
           type: number
           description: commandcode：月窗口满额度（USD）= 当期消耗 + 剩余额度；无额度也无消耗时缺省
+        usage:
+          type: object
+          description: |
+            windows：区间累计用量（本期累计），目前仅 commandcode 回传。
+            服务商给不出时整个字段缺省，气泡也就只有两页。
+            tokens 是毛值——接口不提供缓存命中拆分；requests 与 tokens 来自批量聚合，
+            可能比窗口百分比滞后数分钟。
+          required: [totalTokens, inputTokens, outputTokens, requests, spentUsd]
+          properties:
+            totalTokens:
+              type: integer
+              description: 区间总 token
+            inputTokens:
+              type: integer
+              description: 毛输入 token（含缓存命中部分，接口不给拆分）
+            outputTokens:
+              type: integer
+              description: 输出 token
+            requests:
+              type: integer
+              description: 区间请求数（含失败请求）
+            spentUsd:
+              type: number
+              description: 区间花费（USD）
         wallets:
           type: array
           description: |

@@ -58,6 +58,32 @@ export function balanceDetailView(state: BalanceState): BalanceBubbleRow[] {
   return handler.detail ? handler.detail(state) : handler.rows(state);
 }
 
+/**
+ * 余额气泡的可翻页数：不可用只有一页说明；windows 至少两页（收起态 + 窗口明细），
+ * 服务商给了区间用量就多一页；custom 以节点树页数为准，其余形态点开没有新内容。
+ *
+ * 页数与 {@link balancePageView} 必须同源：两边各判一次就会翻出一页空白。
+ */
+export function balancePageCount(state: BalanceState): number {
+  if (!state.ok) return 1;
+  if (state.shape === 'custom') return Math.max(1, customViews(state)?.length ?? 1);
+  if (state.shape !== 'windows') return 1;
+  return state.usage ? 3 : 2;
+}
+
+/**
+ * 指定页的气泡行数据：windows 下 0 为收起态、1 为窗口明细、2 为区间用量。
+ *
+ * 越界页回落到最后一页有内容的页，不返回空数组——空白气泡比停在前一页更像坏了。
+ */
+export function balancePageView(state: BalanceState, page: number): BalanceBubbleRow[] {
+  if (!state.ok) return unavailableRows(state);
+  const handler = HANDLERS[state.shape];
+  if (state.shape !== 'windows' || page <= 0) return handler.rows(state);
+  if (page === 1 || !state.usage) return balanceDetailView(state);
+  return handler.usage?.(state) ?? balanceDetailView(state);
+}
+
 // 自定义气泡（custom 形态）走节点树这条并行通道：行数据由插件定好长什么样，只填文案；
 // 节点树把布局本身交给第三方。两种通道按 shape 互斥，两端渲染入口各判一次即可，其余展示逻辑共用。
 

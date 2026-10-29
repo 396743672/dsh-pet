@@ -95,6 +95,19 @@ export interface CustomBalance {
 export type PricingTier = 'peak' | 'idle';
 
 /**
+ * 区间累计用量（本期）：目前只有 commandcode 回传，给不出时整个字段缺省，气泡也就没有这一页。
+ *
+ * tokens 是毛值——接口不提供缓存命中拆分；requests 与 tokens 来自批量聚合，可能比窗口百分比滞后数分钟。
+ */
+export interface BalanceUsage {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+  spentUsd: number;
+}
+
+/**
  * 三窗口用量（windows 形态）：opencode 与 commandcode 共用，展示层因此共用「取最紧迫窗口」逻辑。
  * monthly 必有；rolling 与 weekly 缺省表示服务商没有该窗口，而非 0。三个满额度齐全时按剩余额度
  * 比较，否则退化为已用百分比；rollingLabel 是服务商业务事实，重置时间缺省按「已重置」处理。
@@ -110,6 +123,8 @@ export interface WindowsUsage {
   rollingResetsAt?: string;
   weeklyResetsAt?: string;
   monthlyResetsAt?: string;
+  /** 区间累计用量（可选页）；缺省表示该服务商没有这项数据 */
+  usage?: BalanceUsage;
 }
 
 /**

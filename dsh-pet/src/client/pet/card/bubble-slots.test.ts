@@ -110,6 +110,16 @@ describe('balancePageCount —— 余额气泡可翻页数', () => {
     assert.equal(balancePageCount(windowsState), 2);
   });
 
+  test('windows 带区间用量：多一页（收起 / 窗口明细 / 用量）', () => {
+    assert.equal(
+      balancePageCount({
+        ...windowsState,
+        usage: { totalTokens: 95967948, inputTokens: 95489675, outputTokens: 478273, requests: 745, spentUsd: 1.6 },
+      }),
+      3,
+    );
+  });
+
   test('custom：页数取第三方视图数', () => {
     assert.equal(balancePageCount(customState(3)), 3);
   });

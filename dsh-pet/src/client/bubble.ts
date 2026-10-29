@@ -6,8 +6,7 @@
  * @module dsh-pet/src/client/bubble
  */
 import {
-  balanceBubbleView,
-  balanceDetailView,
+  balancePageView,
   customClickable,
   customViews,
   type BalanceBubbleRow,
@@ -86,6 +85,20 @@ const bubbleCss = [
   '.dsh-pet-bubble .pet-bub-quota-fill.pet-bub-quota-crit{background:#e53935}',
   '.dsh-pet-bubble .pet-bub-quota-used{flex:none;min-width:calc(var(--f)*2.2);text-align:right;font-variant-numeric:tabular-nums;font-weight:650;color:#1f1f1f}',
   '.dsh-pet-bubble .pet-bub-quota-reset{flex:none;min-width:calc(var(--f)*2.6);text-align:right;font-size:calc(var(--f)*0.7692);color:rgba(43,43,43,.6)}',
+  // 用量页（第三页）：三行两列占满展开态宽度，总量是唯一的大字。
+  // 配色只给进/出两处强调，其余沿用次级灰——同页里超过两种彩色会盖过数值本身。
+  '.dsh-pet-bubble .pet-bub-usage{display:flex;flex-direction:column;gap:calc(var(--f)*0.22);margin:calc(var(--f)*0.1) 0}',
+  '.dsh-pet-bubble .pet-bub-usage-line{display:flex;align-items:baseline;justify-content:space-between;gap:calc(var(--f)*0.8);line-height:1.45}',
+  '.dsh-pet-bubble .pet-bub-usage-title{font-size:calc(var(--f)*0.7692);color:rgba(43,43,43,.62)}',
+  '.dsh-pet-bubble .pet-bub-usage-total{font-size:calc(var(--f)*1.45);line-height:1.2;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:#1f1f1f}',
+  '.dsh-pet-bubble .pet-bub-usage-in{font-size:calc(var(--f)*0.7692);font-variant-numeric:tabular-nums;color:#3f6ea8}',
+  '.dsh-pet-bubble .pet-bub-usage-out{font-size:calc(var(--f)*0.7692);font-variant-numeric:tabular-nums;color:#b4703c}',
+  '.dsh-pet-bubble .pet-bub-usage-period{font-size:calc(var(--f)*0.7692);color:rgba(43,43,43,.62)}',
+  '.dsh-pet-bubble .pet-bub-usage-spend{font-size:calc(var(--f)*0.7692);font-weight:650;font-variant-numeric:tabular-nums;color:#1f1f1f}',
+  // 进出比例条：两段按真实占比分宽，颜色与下面的数字一一对应；占比极小时只留一条细线，不放大。
+  '.dsh-pet-bubble .pet-bub-usage-bar{display:flex;height:calc(var(--f)*0.3);border-radius:calc(var(--f)*0.15);overflow:hidden;background:rgba(43,43,43,.1);margin:calc(var(--f)*0.05) 0}',
+  '.dsh-pet-bubble .pet-bub-usage-bar-in{display:block;height:100%;background:#3f6ea8}',
+  '.dsh-pet-bubble .pet-bub-usage-bar-out{display:block;height:100%;background:#b4703c}',
 ].join('\n');
 
 /** 注入气泡样式，每页只注入一次。 */
@@ -141,6 +154,54 @@ function rowsToNodes(h: typeof jsx, rows: BalanceBubbleRow[]): ReactNode {
         ],
       });
     }
+    // 用量页：三行两列，总量是整卡唯一的大字；进/出各一处强调色，其余保持次级灰。
+    if (r.role === 'usage') {
+      return h('div', {
+        key: i,
+        className: 'pet-bub-usage',
+        children: [
+          h('div', {
+            key: 'head',
+            className: 'pet-bub-usage-line',
+            children: [
+              h('span', { key: 'title', className: 'pet-bub-usage-title', children: r.title }),
+              h('span', { key: 'total', className: 'pet-bub-usage-total', children: r.total }),
+            ],
+          }),
+          // 进出比例条：宽度即真实占比，输入通常压倒性占多数，条偏单色属正常。
+          r.inputPercent === undefined
+            ? null
+            : h('div', {
+                key: 'bar',
+                className: 'pet-bub-usage-bar',
+                children: [
+                  h('i', { key: 'in', className: 'pet-bub-usage-bar-in', style: { width: r.inputPercent + '%' } }),
+                  h('i', {
+                    key: 'out',
+                    className: 'pet-bub-usage-bar-out',
+                    style: { width: 100 - r.inputPercent + '%' },
+                  }),
+                ],
+              }),
+          h('div', {
+            key: 'io',
+            className: 'pet-bub-usage-line',
+            children: [
+              h('span', { key: 'in', className: 'pet-bub-usage-in', children: r.input }),
+              h('span', { key: 'out', className: 'pet-bub-usage-out', children: r.output }),
+            ],
+          }),
+          h('div', {
+            key: 'foot',
+            className: 'pet-bub-usage-line',
+            children: [
+              h('span', { key: 'period', className: 'pet-bub-usage-period', children: r.period }),
+              h('span', { key: 'spend', className: 'pet-bub-usage-spend', children: r.spend }),
+            ],
+          }),
+        ],
+      });
+    }
     if (r.role === 'error') return h('div', { key: i, className: 'pet-bub-err', children: r.text });
     if (r.role === 'sub') return h('div', { key: i, className: 'pet-bub-row pet-bub-sub', children: r.text });
     return h('div', { key: i, className: 'pet-bub-row', children: r.text });
@@ -174,7 +235,7 @@ function treeToNodes(h: typeof jsx, node: CustomNode, key: string | number): Rea
 const BALANCE_FADE_MS = 250;
 
 /** 制造余额气泡组件（工厂），注入样式一次。
- *  内容来自 shared 的 balanceBubbleView / balanceDetailView；内置形态走行数据，
+ *  内容来自 shared 的 balancePageView（按页取行数据）；内置形态走行数据，
  *  custom 走第三方节点树。切页是淡出 → 换内容 → 淡入，显隐与 10s 计时归 pet.ts 管。
  */
 export function makeBalanceBubble(rt: {
@@ -185,7 +246,7 @@ export function makeBalanceBubble(rt: {
 }): (props: {
   state: BalanceState;
   on: boolean;
-  /** 目标页：0 为初始页；内置 windows 形态下 0 收起、1 展开。 */
+  /** 目标页：0 为初始页；内置 windows 形态下 0 收起、1 窗口明细、2 区间用量。 */
   index: number;
   /** 点击气泡：上层切到下一页并重置 10s 计时器。 */
   onCycle: () => void;
@@ -221,12 +282,12 @@ export function makeBalanceBubble(rt: {
     const isCustom = state.ok && state.shape === 'custom';
     const views = isCustom ? customViews(state) : undefined;
     const tree = views ? views[Math.min(shown, views.length - 1)] : undefined;
-    const rows = isCustom ? [] : shown > 0 ? balanceDetailView(state) : balanceBubbleView(state);
+    const rows = isCustom ? [] : balancePageView(state, shown);
     // 可点：windows 可展开；custom 只有多于 1 页才可点；其余形态点开没有新内容。
     const clickable = state.ok && (state.shape === 'windows' || (isCustom && customClickable(state)));
     // 不可用状态是多行说明，套用碎碎念的窄字号变体。
     const wrap = state.ok ? '' : ' dsh-pet-whisper';
-    // 展开态只属于内置 windows 的收起/展开两页；custom 各页是对等页面，翻页不该切紧凑字号。
+    // 展开态字号只属于内置 windows 的窗口明细与用量两页；custom 各页是对等页面，翻页不该切紧凑字号。
     return h('div', {
       className:
         'dsh-pet-bubble' +

@@ -245,15 +245,10 @@ Object.assign(PetSprite.prototype, {
     return this.dragState.active || this.menuOpen || this.chatOpen || this.todoOpen || this.balanceClickable();
   },
 
-  /** 余额气泡当前有几页：custom 取 views.length；内置 windows 是收起/展开两页；其余一页。 */
+  /** 余额气泡当前有几页：规则归共享层（与每页内容同源），这里只补「还没有结果」的兜底。 */
   balancePageCount() {
     const s = this.balanceState;
-    if (!s || !s.ok) return 1;
-    if (s.shape === 'custom') {
-      const views = S.customViews(s);
-      return views ? Math.max(1, views.length) : 1;
-    }
-    return s.shape === 'windows' ? 2 : 1;
+    return s ? S.balancePageCount(s) : 1;
   },
 
   /** 余额气泡此刻是否可点切页：页数多于 1 且气泡正在显示。 */

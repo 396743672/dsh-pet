@@ -84,7 +84,7 @@ Object.assign(PetSprite.prototype, {
     );
     this.bubble.classList.toggle(S.MEME_BUBBLE_CLASS, !!whisperImg);
     // 可点/展开两个状态类：可点 → 气泡参与命中区（见 syncInputRegions）；index>0 → 更宽的盒与紧凑字号。
-    // 展开态仅内置 windows 的收起/展开两页使用；custom 各页是对等页面，翻页不切紧凑字号。
+    // 展开态仅内置 windows 的窗口明细与用量页使用；custom 各页是对等页面，翻页不切紧凑字号。
     const isCustom = !!(this.balanceState && S.customViews(this.balanceState));
     const clickable = slot === 'balance' && this.balanceClickable();
     const expanded = clickable && !isCustom && this.balanceViewIndex > 0;
@@ -127,10 +127,9 @@ Object.assign(PetSprite.prototype, {
       if (page) this.bubble.appendChild(this.renderTree(page));
     } else {
       // 展开态的行在这里现算：renderBubble 是只读渲染路径，不缓存（余额每轮都在变，缓存反而要同步失效）
-      const rows =
-        clickable && this.balanceViewIndex > 0 && this.balanceState
-          ? S.balanceDetailView(this.balanceState)
-          : this.balanceView;
+      // 每页内容与页数同源（S.balancePageView / S.balancePageCount）：不再按「index>0 即窗口明细」二分化，
+      // 否则新增的用量页会和明细挤在同一页。没有读数时回落到缓存的首屏行。
+      const rows = this.balanceState ? S.balancePageView(this.balanceState, this.balanceViewIndex) : this.balanceView;
       const hasTier = rows.some((r) => r.role === 'tier');
       if (hasTier) {
         // deepseek 余额单行：余额（峰/谷）¥x — 档位字着色
@@ -166,6 +165,53 @@ Object.assign(PetSprite.prototype, {
             reset.textContent = r.resetText;
             row.append(label, bar, used, reset);
             this.bubble.appendChild(row);
+            continue;
+          }
+          // 用量页：三行两列，总量是唯一大字；进/出各一处强调色，其余次级灰。
+          if (r.role === 'usage') {
+            const box = document.createElement('div');
+            box.className = 'pet-bub-usage';
+            const line = (cells) => {
+              const row = document.createElement('div');
+              row.className = 'pet-bub-usage-line';
+              for (const cell of cells) {
+                const span = document.createElement('span');
+                span.className = cell.cls;
+                span.textContent = cell.text;
+                row.appendChild(span);
+              }
+              return row;
+            };
+            // 进出比例条：宽度即真实占比，输入通常压倒性占多数，条偏单色属正常。
+            const bar = document.createElement('div');
+            bar.className = 'pet-bub-usage-bar';
+            if (r.inputPercent !== undefined) {
+              const inBar = document.createElement('i');
+              inBar.className = 'pet-bub-usage-bar-in';
+              inBar.style.width = r.inputPercent + '%';
+              const outBar = document.createElement('i');
+              outBar.className = 'pet-bub-usage-bar-out';
+              outBar.style.width = 100 - r.inputPercent + '%';
+              bar.append(inBar, outBar);
+            }
+            box.append(
+              line([
+                { cls: 'pet-bub-usage-title', text: r.title },
+                { cls: 'pet-bub-usage-total', text: r.total },
+              ]),
+            );
+            if (r.inputPercent !== undefined) box.appendChild(bar);
+            box.append(
+              line([
+                { cls: 'pet-bub-usage-in', text: r.input },
+                { cls: 'pet-bub-usage-out', text: r.output },
+              ]),
+              line([
+                { cls: 'pet-bub-usage-period', text: r.period },
+                { cls: 'pet-bub-usage-spend', text: r.spend },
+              ]),
+            );
+            this.bubble.appendChild(box);
             continue;
           }
           const div = document.createElement('div');

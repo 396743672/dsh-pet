@@ -228,6 +228,73 @@
         font-size: calc(var(--f) * 0.7692);
         color: rgba(43, 43, 43, 0.6);
       }
+      /* 用量页（第三页）：三行两列占满展开态宽度，总量是唯一的大字。
+         配色只给进/出两处强调，其余沿用次级灰——同页里超过两种彩色会盖过数值本身。
+         与浏览器端 src/client/bubble.ts 的规则逐条对应，数值必须同步 */
+      .pet-bub-usage {
+        display: flex;
+        flex-direction: column;
+        gap: calc(var(--f) * 0.22);
+        margin: calc(var(--f) * 0.1) 0;
+      }
+      .pet-bub-usage-line {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: calc(var(--f) * 0.8);
+        line-height: 1.45;
+      }
+      .pet-bub-usage-title {
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.62);
+      }
+      .pet-bub-usage-total {
+        font-size: calc(var(--f) * 1.45);
+        line-height: 1.2;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+        color: #1f1f1f;
+      }
+      .pet-bub-usage-in {
+        font-size: calc(var(--f) * 0.7692);
+        font-variant-numeric: tabular-nums;
+        color: #3f6ea8;
+      }
+      .pet-bub-usage-out {
+        font-size: calc(var(--f) * 0.7692);
+        font-variant-numeric: tabular-nums;
+        color: #b4703c;
+      }
+      .pet-bub-usage-period {
+        font-size: calc(var(--f) * 0.7692);
+        color: rgba(43, 43, 43, 0.62);
+      }
+      .pet-bub-usage-spend {
+        font-size: calc(var(--f) * 0.7692);
+        font-weight: 650;
+        font-variant-numeric: tabular-nums;
+        color: #1f1f1f;
+      }
+      /* 进出比例条：两段按真实占比分宽，颜色与下面的数字一一对应；占比极小时只留一条细线，不放大 */
+      .pet-bub-usage-bar {
+        display: flex;
+        height: calc(var(--f) * 0.3);
+        border-radius: calc(var(--f) * 0.15);
+        overflow: hidden;
+        background: rgba(43, 43, 43, 0.1);
+        margin: calc(var(--f) * 0.05) 0;
+      }
+      .pet-bub-usage-bar-in {
+        display: block;
+        height: 100%;
+        background: #3f6ea8;
+      }
+      .pet-bub-usage-bar-out {
+        display: block;
+        height: 100%;
+        background: #b4703c;
+      }
       /* 配置错误提示（大声报错，不做静默兜底）：配置缺失/非法时显示，每 5s 自动重试 */
       .pet-error {
         position: fixed;
