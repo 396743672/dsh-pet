@@ -60,7 +60,7 @@ export function makePetConfigSection(rt: SettingsRuntime): FunctionComponent<{ c
   // 卡片在 settings/ 里各自成文件，这里只造一次实例：组件类型必须跨渲染稳定，
   // 否则选择器的浮层状态（打开 / 搜索词 / 高亮）每次渲染都会丢。
   const ModelPicker = makeModelPicker({ h, useState, useEffect, useRef, t });
-  const VoicePicker = makeVoicePicker({ h, useState, useEffect, useRef, t });
+  const VoicePicker = makeVoicePicker({ h, useState, useEffect, useRef });
   const PetTabs = makePetTabs({ h, t });
   const KindTabs = makeKindTabs({ h, t });
   const PetCard = makePetCard(rt);

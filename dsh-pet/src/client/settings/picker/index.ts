@@ -10,6 +10,6 @@ export {
   type ModelRow,
   selectableIndexes,
 } from './model-rows.ts';
-export { type AnchorRect, computePanelPlacement, type PanelPosition, type Viewport } from './model-picker-placement.ts';
+export { type AnchorRect, computePanelPlacement, type PanelPosition, type Viewport } from '../panel/placement.ts';
 export { buildModelPanel, type ModelPanelView } from './model-picker-panel.ts';
 export { makeModelPicker, type ModelPickerProps } from './model-picker.ts';

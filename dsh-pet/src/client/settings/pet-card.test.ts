@@ -6,13 +6,14 @@
  *   2. 每个控件都改自己那个字段：名字 / 大小走顶层，角落 / 偏移走 position 子补丁（错位会静默写坏配置）；
  *   3. 表单忙时全部控件禁用，保存结果就近显示在卡片右上角。
  *
- * 用假的 `h` 记录节点树（不引 jsdom）。
+ * 用假的 `h` 记录节点树（不引 jsdom）；两个下拉是自绘组件，节点上直接存 `value` 与 `onChange(id)`。
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { jsx } from 'react/jsx-runtime';
 
 import { makePetCard, type PetPatch } from './pet-card.ts';
+import { PET_DISPLAYS } from '../../shared/config.ts';
 import type { Pet } from '../../shared/types.ts';
 
 interface Node {
@@ -21,7 +22,15 @@ interface Node {
 }
 
 const h = ((tag: unknown, props: Record<string, unknown>) => ({ tag, props })) as unknown as typeof jsx;
-const PetCard = makePetCard({ h, t: (key: string) => key } as never);
+/** 假 runtime：hook 只在组件体内被调用，这里只需能返回初值、能装 ref。 */
+const rt = {
+  h,
+  t: (key: string) => key,
+  useState: <T>(init: T) => [init, () => {}] as [T, (next: T) => void],
+  useEffect: () => {},
+  useRef: <T>(init: T) => ({ current: init }),
+};
+const PetCard = makePetCard(rt as never);
 
 /** 摊平整棵树。 */
 function flatten(node: unknown): Node[] {
@@ -35,7 +44,7 @@ const pet = {
   id: 'pet-1',
   name: '小桌宠',
   size: 260,
-  display: 'front',
+  display: 'both',
   balanceEnabled: true,
   whisperEnabled: false,
   workStatusEnabled: true,
@@ -48,6 +57,13 @@ const pet = {
 function control(tree: unknown, tag: string, match: (props: Record<string, unknown>) => boolean): Node {
   const found = flatten(tree).find((node) => node.tag === tag && match(node.props));
   assert.ok(found, `没找到满足条件的 ${tag}`);
+  return found;
+}
+
+/** 按当前值找下拉：下拉节点带 `options` 数组，值直接挂在 props 上。 */
+function picker(tree: unknown, value: string): Node {
+  const found = flatten(tree).find((node) => node.props.value === value && Array.isArray(node.props.options));
+  assert.ok(found, `没找到当前值为 ${value} 的下拉`);
   return found;
 }
 
@@ -79,11 +95,24 @@ describe('PetCard —— 宠物配置卡', () => {
     assert.deepEqual(patches, [{ name: '新名字' }, { size: 300 }]);
   });
 
+  test('显示位置下拉：改的是顶层 display', () => {
+    const patches: PetPatch[] = [];
+    const tree = render((patch) => patches.push(patch));
+    const display = picker(tree, 'both');
+    assert.deepEqual(
+      (display.props.options as { id: string }[]).map((option) => option.id),
+      [...PET_DISPLAYS],
+      '选项来自 PET_DISPLAYS，文案由 t 提供',
+    );
+    (display.props.onChange as (id: string) => void)('desktop');
+    assert.deepEqual(patches, [{ display: 'desktop' }]);
+  });
+
   test('角落与两个偏移走 position 子补丁', () => {
     const patches: PetPatch[] = [];
     const tree = render((patch) => patches.push(patch));
-    const corner = control(tree, 'select', (props) => props.value === 'bottom-left');
-    (corner.props.onChange as (e: { target: { value: string } }) => void)({ target: { value: 'top-right' } });
+    const corner = picker(tree, 'bottom-left');
+    (corner.props.onChange as (id: string) => void)('top-right');
     const marginX = control(tree, 'input', (props) => props.value === '40');
     (marginX.props.onChange as (e: { target: { value: string } }) => void)({ target: { value: '12' } });
     const marginY = control(tree, 'input', (props) => props.value === '60');
@@ -129,11 +158,12 @@ describe('PetCard —— 宠物配置卡', () => {
       onSave: () => {},
       onRemove: () => {},
     } as never);
-    const controls = flatten(tree).filter(
-      (node) => node.tag === 'input' || node.tag === 'select' || node.tag === 'textarea',
-    );
+    const controls = flatten(tree).filter((node) => node.tag === 'input' || node.tag === 'textarea');
     assert.ok(controls.length > 0);
     for (const node of controls) assert.equal(node.props.disabled, true, `${node.tag} 应被禁用`);
+    const pickers = flatten(tree).filter((node) => Array.isArray(node.props.options));
+    assert.equal(pickers.length, 2, '显示位置与角落两个下拉都要渲染');
+    for (const node of pickers) assert.equal(node.props.disabled, true, '下拉应被禁用');
     assert.ok(
       flatten(tree).some(
         (node) => node.props.children === '保存失败' && String(node.props.className).includes('is-err'),

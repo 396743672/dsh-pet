@@ -8,7 +8,7 @@ import type * as ReactNS from 'react';
 import type { jsx } from 'react/jsx-runtime';
 import type { ModelSelection } from '../../../shared/types.ts';
 import type { ModelCatalogGroup, ModelRow } from './model-rows.ts';
-import type { PanelPosition } from './model-picker-placement.ts';
+import type { PanelPosition } from '../panel/placement.ts';
 
 /** 浮层渲染所需的一切；每次渲染现算一份，不跨渲染保存。 */
 export interface ModelPanelView {

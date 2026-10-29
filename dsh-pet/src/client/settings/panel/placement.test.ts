@@ -1,15 +1,16 @@
 /**
- * 模型选择器浮层定位的契约测试。
+ * 设置页浮层定位的契约测试。
  *
- * 三条契约：
+ * 四条契约：
  *   1. 默认向下展开：浮层顶边贴触发器底边往下 4px，高度不超过 360px；
  *   2. 下方放不下且上方更宽裕才翻上去，翻上去时给的是 `bottom`（贴着触发器顶边往上）；
- *   3. 宽度夹在 [240, min(420, 视口宽 - 16)] 内，左右钳制到视口内不越界。
+ *   3. 宽度夹在 [下限, min(上限, 视口宽 - 16)] 内，左右钳制到视口内不越界；
+ *   4. 下限与上限可由调用方覆盖：单行下拉传 0 即跟触发器等宽。
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computePanelPlacement } from './model-picker-placement.ts';
+import { computePanelPlacement } from './placement.ts';
 
 const anchor = { left: 100, top: 300, bottom: 328, width: 340 };
 
@@ -57,5 +58,20 @@ describe('computePanelPlacement —— 浮层定位', () => {
   test('左边界钳制：触发器贴视口左边时浮层不越出左侧', () => {
     const pos = computePanelPlacement({ left: 0, top: 300, bottom: 320, width: 340 }, { width: 1280, height: 900 });
     assert.equal(pos.left, 8);
+  });
+
+  test('覆盖下限为 0：单行下拉跟触发器等宽，不被撑到 240', () => {
+    const pos = computePanelPlacement(
+      { left: 100, top: 300, bottom: 328, width: 120 },
+      { width: 1280, height: 900 },
+      { minWidthPx: 0 },
+    );
+    assert.equal(pos.width, 120);
+  });
+
+  test('覆盖高度上限与翻面阈值：小清单不因空间富余就撑到 360', () => {
+    const pos = computePanelPlacement(anchor, { width: 1280, height: 900 }, { maxHeightPx: 200, flipThresholdPx: 100 });
+    assert.equal(pos.maxHeight, 200);
+    assert.equal(pos.top, 332);
   });
 });

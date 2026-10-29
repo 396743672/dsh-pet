@@ -9,6 +9,7 @@ import type { Corner, Pet, PetDisplay } from '../../shared/types.ts';
 import { PET_DISPLAYS } from '../../shared/config.ts';
 import type { SettingsRuntime } from './runtime.ts';
 import { INPUT_CLASS, makeUiKit } from './ui.ts';
+import { makeSelect } from './panel/select.ts';
 
 /** 宠物字段补丁：`position` 只带要改的子字段，其余字段走顶层。 */
 export type PetPatch = Partial<Omit<Pet, 'position'>> & { position?: Partial<Pet['position']> };
@@ -43,6 +44,7 @@ const CORNERS: Corner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right
 export function makePetCard(rt: SettingsRuntime): FunctionComponent<PetCardProps> {
   const { h, t } = rt;
   const { tip, q, field, toggleCell } = makeUiKit({ h, t });
+  const Select = makeSelect(rt);
 
   /** 宠物数值输入（大小 / 水平偏移 / 垂直偏移）；宽度交给栅格。 */
   const numInput = (
@@ -131,13 +133,12 @@ export function makePetCard(rt: SettingsRuntime): FunctionComponent<PetCardProps
             ),
             field(
               t('displayLabel'),
-              h('select', {
-                className: INPUT_CLASS,
+              h(Select, {
+                label: t('displayLabel'),
                 value: pet.display,
+                options: PET_DISPLAYS.map((d) => ({ id: d, label: t('display.' + d) })),
                 disabled: busy,
-                onChange: (e: ChangeEvent<HTMLSelectElement>) =>
-                  props.onChange({ display: e.target.value as PetDisplay }),
-                children: PET_DISPLAYS.map((d) => h('option', { key: d, value: d, children: t('display.' + d) })),
+                onChange: (id: string) => props.onChange({ display: id as PetDisplay }),
               }),
               t('displayHint'),
             ),
@@ -149,13 +150,12 @@ export function makePetCard(rt: SettingsRuntime): FunctionComponent<PetCardProps
           children: [
             field(
               t('cornerLabel'),
-              h('select', {
-                className: INPUT_CLASS,
+              h(Select, {
+                label: t('cornerLabel'),
                 value: pet.position.corner,
+                options: CORNERS.map((c) => ({ id: c, label: t('corner.' + c) })),
                 disabled: busy,
-                onChange: (e: ChangeEvent<HTMLSelectElement>) =>
-                  props.onChange({ position: { corner: e.target.value as Corner } }),
-                children: CORNERS.map((c) => h('option', { key: c, value: c, children: t('corner.' + c) })),
+                onChange: (id: string) => props.onChange({ position: { corner: id as Corner } }),
               }),
               t('cornerHint'),
             ),

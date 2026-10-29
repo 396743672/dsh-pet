@@ -10,7 +10,7 @@ import type { FunctionComponent } from 'react';
 import type { ModelSelection } from '../../../shared/types.ts';
 import type { SettingsRuntime } from '../runtime.ts';
 import { buildModelRows, selectableIndexes, type ModelCatalogGroup, type ModelRow } from './model-rows.ts';
-import { computePanelPlacement, type PanelPosition } from './model-picker-placement.ts';
+import { computePanelPlacement, type PanelPosition } from '../panel/placement.ts';
 import { buildModelPanel } from './model-picker-panel.ts';
 
 /** 选择器的对外契约：一个字段一个实例。 */
