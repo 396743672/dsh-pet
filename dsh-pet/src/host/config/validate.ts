@@ -147,6 +147,12 @@ export function topFieldValid(key: string, value: unknown): boolean {
     case 'voiceName':
       // 音色必须是白名单内的 id；写错即非法，读取侧回落到默认音色并告警
       return typeof value === 'string' && isKnownVoice(value);
+    case 'voiceWhisperEnabled':
+      // 周期碎碎念的语音开关（全局布尔）：只决定念不念，不影响气泡与记忆
+      return typeof value === 'boolean';
+    case 'voiceTodoEnabled':
+      // 待办提醒的语音开关（全局布尔）：同上
+      return typeof value === 'boolean';
     case 'chatImageEnabled':
       return typeof value === 'boolean';
     case 'confineToScreen':

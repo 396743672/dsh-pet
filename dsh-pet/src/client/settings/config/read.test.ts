@@ -57,6 +57,17 @@ describe('readMainConfig —— 成品聚合 → 表单补丁', () => {
     assert.equal(withFlag?.trayEnabled, false);
   });
 
+  test('语音细分开关：布尔原样带出，缺失或非布尔不进补丁', () => {
+    const patch = readMainConfig({ main: { pets: [], voiceWhisperEnabled: true, voiceTodoEnabled: false } });
+    assert.equal(patch?.voiceWhisperEnabled, true);
+    assert.equal(patch?.voiceTodoEnabled, false, 'false 是合法值，不能当作没写');
+    const none = readMainConfig({ main: { pets: [] } });
+    assert.equal('voiceWhisperEnabled' in (none ?? {}), false);
+    assert.equal('voiceTodoEnabled' in (none ?? {}), false);
+    const bad = readMainConfig({ main: { pets: [], voiceTodoEnabled: 'yes' } });
+    assert.equal('voiceTodoEnabled' in (bad ?? {}), false, '非布尔当作没写');
+  });
+
   test('条目人设原样带出，供「留空时跟随什么」的预览', () => {
     assert.equal(readMainConfig({ main: { pets: [], whisperPrompt: '条目人设' } })?.entryPrompt, '条目人设');
   });

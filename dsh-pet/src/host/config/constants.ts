@@ -53,6 +53,8 @@ export const GLOBAL_DEFAULT_KEYS = [
   'confineToScreen',
   'voiceEnabled',
   'voiceName',
+  'voiceWhisperEnabled',
+  'voiceTodoEnabled',
   'whisperImageEnabled',
   'chatImageEnabled',
   'chatImageLimit',

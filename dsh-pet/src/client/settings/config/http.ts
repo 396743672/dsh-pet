@@ -39,6 +39,10 @@ export interface SaveFields {
   voiceEnabled: boolean;
   /** 语音音色 id（白名单内的四个之一）。 */
   voiceName: string;
+  /** 周期碎碎念要不要念出来。 */
+  voiceWhisperEnabled: boolean;
+  /** 待办提醒要不要念出来。 */
+  voiceTodoEnabled: boolean;
   physics: PhysicsParams;
   whisperModel: ModelSelection;
   chatModel: ModelSelection;
@@ -71,6 +75,8 @@ export function buildSaveBody(fields: SaveFields): Record<string, unknown> {
     trayEnabled: fields.trayEnabled,
     voiceEnabled: fields.voiceEnabled,
     voiceName: fields.voiceName,
+    voiceWhisperEnabled: fields.voiceWhisperEnabled,
+    voiceTodoEnabled: fields.voiceTodoEnabled,
     physics: fields.physics,
     whisperModel: fields.whisperModel,
     chatModel: fields.chatModel,

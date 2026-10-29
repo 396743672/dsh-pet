@@ -137,6 +137,9 @@ export function makePetConfigSection(rt: SettingsRuntime): FunctionComponent<{ c
     // 语音播报开关与音色（全局默认）：随「保存」整包写入；初值即内置默认，加载后用成品值覆盖。
     const [voiceEnabled, setVoiceEnabled] = useState(false);
     const [voiceName, setVoiceName] = useState('zh-CN-XiaoyiNeural');
+    // 语音的两个细分开关（周期碎碎念 / 待办提醒）：与总开关同一套语义，初值 false 是内置默认。
+    const [voiceWhisperEnabled, setVoiceWhisperEnabled] = useState(false);
+    const [voiceTodoEnabled, setVoiceTodoEnabled] = useState(false);
     // 可选音色：来自宿主 /voice/voices，拉不到就留空——下拉只显示当前值，绝不硬编码音色 id。
     const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>([]);
     // 物理参数（全局）：只改本地状态，随「保存」整包写入；初值仅占位，成品加载成功后才允许编辑与保存。
@@ -167,6 +170,8 @@ export function makePetConfigSection(rt: SettingsRuntime): FunctionComponent<{ c
         if (patch.trayEnabled !== undefined) setTrayEnabled(patch.trayEnabled);
         if (patch.voiceEnabled !== undefined) setVoiceEnabled(patch.voiceEnabled);
         if (patch.voiceName !== undefined) setVoiceName(patch.voiceName);
+        if (patch.voiceWhisperEnabled !== undefined) setVoiceWhisperEnabled(patch.voiceWhisperEnabled);
+        if (patch.voiceTodoEnabled !== undefined) setVoiceTodoEnabled(patch.voiceTodoEnabled);
         if (patch.physics !== undefined) setPhysics(patch.physics);
         if (patch.font !== undefined) setFont(patch.font);
         if (patch.whisperModel !== undefined) setWhisperModel(patch.whisperModel);
@@ -241,6 +246,8 @@ export function makePetConfigSection(rt: SettingsRuntime): FunctionComponent<{ c
         trayEnabled,
         voiceEnabled,
         voiceName,
+        voiceWhisperEnabled,
+        voiceTodoEnabled,
         physics,
         whisperModel,
         chatModel,
@@ -316,8 +323,12 @@ export function makePetConfigSection(rt: SettingsRuntime): FunctionComponent<{ c
           enabled: voiceEnabled,
           voiceName,
           voices: voiceOptions,
+          whisperEnabled: voiceWhisperEnabled,
+          todoEnabled: voiceTodoEnabled,
           onToggle: setVoiceEnabled,
           onVoiceChange: setVoiceName,
+          onWhisperToggle: setVoiceWhisperEnabled,
+          onTodoToggle: setVoiceTodoEnabled,
         }),
         h(FontCard, { busy, font, onChange: patchFont }),
         h(ModelCard, {

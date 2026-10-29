@@ -120,12 +120,17 @@ export const zh = {
   trayToggleHint:
     '桌面模式启动后在通知区域（macOS 为菜单栏）常驻一个图标，列出配置里的全部宠物，勾选就能切换显示位置——包括当前不在桌面、没有窗口可右键的那些。关掉之后要把宠物叫回桌面，只能开浏览器用设置页，或在网页端那只宠物身上右键。Windows 本来就会把它折叠进「隐藏的图标」面板。仅影响桌面模式。',
   voiceTitle: '语音播报',
-  voiceHint: '碎碎念与对话回复可以念出来；默认关闭，随「保存」写入用户配置（不做即时写入）。',
+  voiceHint:
+    '桌宠出声的三个开关与音色：总开关管自动播报，两个细分开关各管一类主动消息。默认全关，随「保存」写入用户配置（不做即时写入）。',
   voiceEnabled: '语音播报',
   voiceEnabledHint:
-    '开启后，碎碎念与对话回复会用下面选中的音色念出来。只影响「说不说」：气泡、对话记忆与系统通知都不受影响；合成失败只留日志，不打断对话。',
+    '自动播报的总开关。关掉后周期碎碎念与待办提醒都不念（下面两个细分开关不起作用）；手动碎碎念、对话回复与对话面板的喇叭按钮不受它限制——那些是你主动点的，发起的那一端直接念。只影响「说不说」：气泡、对话记忆与系统通知都不受影响；合成失败只留日志，不打断对话。',
+  voiceWhisperEnabled: '碎碎念播报',
+  voiceWhisperEnabledHint:
+    '周期生成的那句碎碎念念出来（手动右键的碎碎念不受本项影响）。受上面的总开关约束：总开关关掉时本项不起作用。默认关闭——碎碎念是背景旁白，不该默认出声。',
+  voiceTodoEnabled: '待办播报',
+  voiceTodoEnabledHint: '到点的待办提醒念出来（同一句照样弹气泡，本项只决定念不念）。受上面的总开关约束。默认关闭。',
   voiceNameLabel: '音色',
-  voiceNameHint: '四个中文音色之一，列表由宿主 /voice/voices 提供；默认晓伊（女声 · 活泼）。',
   physicsTitle: '物理（拖拽抛掷手感）',
   physicsHint:
     '全局默认，所有宠物共用（pet pack 可在自己种类文件里单独覆盖）；随「保存」写入用户配置（不做即时写入）。浏览器保存后即时生效，桌面端由保存重载宠物窗口后生效。',
@@ -332,13 +337,17 @@ export const en: Record<Key, string> = {
     'Shows a tray icon (notification area on Windows, menu bar on macOS) once desktop mode is running. It lists every pet in the config and toggles each one between desktop and web/none — including pets that are currently off the desktop and therefore have no window to right-click. With it off, bringing a pet back to the desktop requires opening the browser (the settings page, or right-clicking a web pet there). Windows already folds third-party icons into the "hidden icons" overflow. Desktop mode only.',
   voiceTitle: 'Voice',
   voiceHint:
-    'Whispers and chat replies can be spoken aloud; off by default. Written to the user config on "Save" (never written immediately).',
+    'Three switches plus a voice: the master switch gates automatic speech, the two sub-switches gate one kind of proactive message each. All off by default; written to the user config on "Save" (never written immediately).',
   voiceEnabled: 'Speak replies',
   voiceEnabledHint:
-    'When on, whispers and chat replies are spoken with the voice selected below. It only affects whether sound is produced — bubbles, chat memory and system notifications are untouched; a failed synthesis is logged and never interrupts the conversation.',
+    'Master switch for automatic speech. When off, periodic whispers and todo reminders stay silent (the two sub-switches below have no effect). Manual whispers, chat replies and the speaker button in the chat panel are not gated — you asked for those, so the surface you asked from speaks them directly. It only affects whether sound is produced — bubbles, chat memory and system notifications are untouched; a failed synthesis is logged and never interrupts the conversation.',
+  voiceWhisperEnabled: 'Speak whispers',
+  voiceWhisperEnabledHint:
+    'Speaks the periodically generated whisper (right-clicking for a manual whisper is unaffected). Gated by the master switch above. Off by default — whispers are background narration and should not make noise unasked.',
+  voiceTodoEnabled: 'Speak todo reminders',
+  voiceTodoEnabledHint:
+    'Speaks a todo reminder when it comes due (the bubble still appears; this only decides whether it is spoken). Gated by the master switch above. Off by default.',
   voiceNameLabel: 'Voice',
-  voiceNameHint:
-    'One of the four Chinese voices; the list comes from the host `/voice/voices`. Defaults to Xiaoyi (female, lively).',
   physicsTitle: 'Physics (drag & throw feel)',
   physicsHint:
     'Global default, shared by every pet (a pet pack may override it in its own kind file); written to the user config on "Save" (never written immediately). Applies instantly in the browser; on the desktop it applies once Save reloads the pet windows.',

@@ -785,6 +785,44 @@ describe('saveUserConfig —— 碎碎念 / 对话模型（白名单 + 透传保
   });
 });
 
+describe('saveUserConfig —— 语音细分开关（白名单 + 透传保留）', () => {
+  test('随请求体写入（设置页「语音播报」卡的两个开关）', () => {
+    const out = saveOnce({ pets: PETS, voiceWhisperEnabled: true, voiceTodoEnabled: true });
+    assert.equal(out?.voiceWhisperEnabled, true);
+    assert.equal(out?.voiceTodoEnabled, true);
+  });
+
+  test('false 是合法值，照常落盘', () => {
+    const out = saveOnce({ pets: PETS, voiceWhisperEnabled: false, voiceTodoEnabled: false });
+    assert.equal(out?.voiceWhisperEnabled, false, 'false 不能被当成「没传」而走透传');
+    assert.equal(out?.voiceTodoEnabled, false);
+  });
+
+  test('未传时透传磁盘旧值；磁盘上也没有则不凭空造字段', () => {
+    const kept = saveOnce({ pets: PETS }, { pets: PETS, voiceWhisperEnabled: true, voiceTodoEnabled: true });
+    assert.equal(kept?.voiceWhisperEnabled, true, '未传时必须原样保留磁盘上的手改值');
+    assert.equal(kept?.voiceTodoEnabled, true);
+    const fresh = saveOnce({ pets: PETS }) ?? {};
+    assert.equal('voiceWhisperEnabled' in fresh, false, '磁盘上也没有时不得凭空写入');
+    assert.equal('voiceTodoEnabled' in fresh, false);
+  });
+
+  test('非布尔 → 整体拒绝（宿主回 400；与读取侧 topFieldValid 同一套规则）', () => {
+    for (const value of ['true', 1, null, {}, []]) {
+      assert.equal(
+        saveOnce({ pets: PETS, voiceWhisperEnabled: value }),
+        null,
+        `voiceWhisperEnabled ${JSON.stringify(value)} 必须被拒绝`,
+      );
+      assert.equal(
+        saveOnce({ pets: PETS, voiceTodoEnabled: value }),
+        null,
+        `voiceTodoEnabled ${JSON.stringify(value)} 必须被拒绝`,
+      );
+    }
+  });
+});
+
 describe('saveUserConfig —— 对话历史条数 chatMemoryRounds（白名单 + 透传保留）', () => {
   test('随请求体写入（设置页「AI 模型与对话上下文」的数字输入框）', () => {
     const out = saveOnce({ pets: PETS, chatMemoryRounds: 9 });
