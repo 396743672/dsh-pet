@@ -3,7 +3,8 @@
  * 这是独立于宠物的能力，只随 DSH 网页端走——桌面模式不做宠物无关的功能。
  * 不负责产生帧：宿主监听 DSH 事件并写进 `/state`，容器统一轮询发现 counter 变化后调 `notifyFromFrame`；
  * 中断 / 活动门等过滤也已在宿主侧完成。
- * 依赖 shared/notify.ts 的帧到文案映射，以及成品配置的 `main.notificationsEnabled` 总开关。
+ * 依赖 shared/notify.ts 的帧到文案映射、成品配置的 `main.notificationsEnabled` 总开关，
+ * 以及 app.ts 注入的会话跳转与命名服务（取不到时只降级，不影响弹窗）。
  * @module dsh-pet/src/client/notify
  */
 
@@ -54,13 +55,35 @@ export const NOTIFY_ICONS = {
 /** 当前生效的总开关；运行中可被 reloadNotifications 更新，设置页保存后即时生效。 */
 let notifyEnabled = true;
 
-/** 会话跳转器：由 app.ts 注入，取不到服务时退化为不跳会话。 */
+/** 会话跳转与命名：由 app.ts 注入，取不到服务时退化为不跳会话、不认会话名。 */
 export interface SessionNavigator {
   openSession(sessionId: string): void;
+  /** 该会话的显示名（通知标题用）；没有名字、会话不在列表里或取不到时返回 undefined。 */
+  sessionTitle?(sessionId: string): string | undefined;
 }
 
 /** 当前生效的会话跳转器（app.ts 注入；旧版 DSH 没有 uiWorkspace 时为 undefined）。 */
 let sessionNavigator: SessionNavigator | undefined;
+
+/**
+ * 取某条会话的显示名（通知标题用）。
+ *
+ * @param navigator - app.ts 注入的会话服务；旧版 DSH 可能整个缺失。
+ * @param sessionId - 帧携带的会话 id；缺失时连查询都不做。
+ * @returns 会话名；没有注入器、服务没有该能力或查询抛错时返回 undefined，调用方回落固定文案。
+ */
+export function sessionTitleFrom(
+  navigator: SessionNavigator | undefined,
+  sessionId: string | undefined,
+): string | undefined {
+  if (sessionId === undefined) return undefined;
+  try {
+    return navigator?.sessionTitle?.(sessionId);
+  } catch {
+    // 宿主 store 的 getSnapshot 在首屏列表仍 pending 时可能抛；取不到名字只回落标题，绝不能连累弹窗。
+    return undefined;
+  }
+}
 
 /**
  * 点通知：先页内切到那条会话，再聚焦页面，最后请桌面壳把主窗口叫回前台。
@@ -107,11 +130,15 @@ function toast(title: string, body?: string, icon?: string, sessionId?: string):
   }
 }
 
-/** 帧 → toast 并发出；未知帧静默跳过，帧里的 sessionId 一并透传给点击行为。 */
+/**
+ * 帧 → toast 并发出；未知帧静默跳过，帧里的 sessionId 一并透传给点击行为。
+ * 标题优先用会话名：同一个宿主上可以并行跑多条会话，通知里必须能认出是哪一条回来了。
+ */
 function toastFrame(frame: NotifyFrame): void {
-  const t = frameToToast(frame);
+  const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined;
+  const t = frameToToast(frame, sessionTitleFrom(sessionNavigator, sessionId));
   if (!t) return;
-  toast(t.title, t.body, PIC(t.icon), typeof frame.sessionId === 'string' ? frame.sessionId : undefined);
+  toast(t.title, t.body, PIC(t.icon), sessionId);
 }
 
 /** 申请通知权限的结果；失败时带原因与可选文案，供设置页红字展示。 */
@@ -161,7 +188,7 @@ export function notifyFromFrame(frame: unknown): void {
 
 /**
  * 初始化通知引擎：记住会话跳转器、读总开关、兜底申请权限并跟踪页面聚焦；不做轮询。
- * @param navigator - 会话跳转器；不传时点击只叫窗口、不跳会话。
+ * @param navigator - 会话跳转与命名服务；不传时点击只叫窗口、标题回落固定文案。
  * @returns 释放函数，摘掉聚焦监听。
  */
 export function initNotify(navigator?: SessionNavigator): () => void {
