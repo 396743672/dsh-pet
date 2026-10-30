@@ -16,6 +16,9 @@ test('settings validation accepts explicit costs and write-only blank/clear key 
   };
   assert.deepEqual(validateSettings(input), input);
   assert.deepEqual(validateSettings({ clearApiKey: true }), { clearApiKey: true });
+  // 出网代理走同一个补丁结构：HTTP 层放行，白名单也要能把它读回页面
+  assert.equal(validateSettings({ proxyUrl: 'http://127.0.0.1:7897' }).proxyUrl, 'http://127.0.0.1:7897');
+  assert.equal(publicSettings({ model: 'x', proxyUrl: 'http://127.0.0.1:7897' }).proxyUrl, 'http://127.0.0.1:7897');
   for (const input of [
     null,
     [],
@@ -121,22 +124,27 @@ test('settings browser script strips fragment, keeps key write-only and explicit
   assert.equal(stripped, '/standalone-ai/');
   assert.equal(element('apiKey').value, '');
   assert.equal(element('key-state').textContent, '已保存 · 不回显');
+  // 页面现在同时读 AI 设置与语音设置：AI 相关断言只认 /standalone-ai/settings 那几条
+  const aiRequests = (): typeof requests => requests.filter(({ url }) => url === '/standalone-ai/settings');
   element('apiKey').value = 'write-only-fake-key';
   await element('settings').listeners.submit({ preventDefault() {} });
   assert.equal(element('apiKey').value, '');
-  assert.equal(JSON.parse(requests[1].options.body ?? '{}').apiKey, 'write-only-fake-key');
+  assert.equal(JSON.parse(aiRequests()[1].options.body ?? '{}').apiKey, 'write-only-fake-key');
   element('clearApiKey').checked = true;
   element('clearApiKey').listeners.change();
   assert.equal(element('enabled').checked, false);
   assert.equal(element('apiKey').disabled, true);
   await element('settings').listeners.submit({ preventDefault() {} });
-  assert.equal(JSON.parse(requests[2].options.body ?? '{}').clearApiKey, true);
-  assert.equal(JSON.parse(requests[2].options.body ?? '{}').enabled, false);
+  assert.equal(JSON.parse(aiRequests()[2].options.body ?? '{}').clearApiKey, true);
+  assert.equal(JSON.parse(aiRequests()[2].options.body ?? '{}').enabled, false);
   assert.equal(element('apiKey').disabled, false);
   assert.ok(
-    requests.every(
-      ({ url, options }) =>
-        url === '/standalone-ai/settings' && options.headers['X-DSH-Pet-Token'] === 'process-capability',
-    ),
+    requests.every(({ options }) => options.headers['X-DSH-Pet-Token'] === 'process-capability'),
+    '每个请求都必须带本次运行的令牌',
+  );
+  assert.equal(
+    requests.filter(({ url }) => url === '/standalone-voice/settings').length,
+    1,
+    '语音设置在加载时读一次，保存时才再写',
   );
 });

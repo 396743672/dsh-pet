@@ -24,6 +24,18 @@ export type WhisperGenerateResult =
 /** 单次生成超时（ms）：碎碎念不需要长输出，30s 足够。 */
 const TIMEOUT_MS = 30_000;
 
+/**
+ * 本次生成实际用的截止时间。
+ *
+ * 模型服务自己声明的超时更长时以它为准：独立模式下用户在设置里把「单次请求超时」调到 60 秒，
+ * 这里还按 30 秒砍掉的话，那个设置就形同虚设（慢接口会先在本地被判死）。
+ * 反过来，模型服务没声明时长（DSH 宿主）时保持原来的 30 秒。
+ */
+function deadlineFor(llm: { timeoutMs?: () => number }): number {
+  const declared = typeof llm.timeoutMs === 'function' ? llm.timeoutMs() : 0;
+  return Number.isFinite(declared) && declared > TIMEOUT_MS ? declared : TIMEOUT_MS;
+}
+
 /** 碎碎念指令：纯文本（没有配图时的原样请求）。 */
 const USER_TEXT = '随便说一句日常碎碎念，一句就好，20 字以内。';
 
@@ -67,7 +79,7 @@ export async function generateWhisper(
     return { ok: false, reason: 'provider-missing', message: '当前对话未配置模型' };
   }
   // ctx.llm 是核心服务但保持防御：缺失时显式失败（静默跳过由上层决定）
-  const llm = (ctx as { llm?: { stream(o: unknown): AsyncIterable<unknown> } }).llm;
+  const llm = (ctx as { llm?: { stream(o: unknown): AsyncIterable<unknown>; timeoutMs?: () => number } }).llm;
   if (!llm || typeof llm.stream !== 'function') {
     return { ok: false, reason: 'generate-error', message: 'LLM 服务不可用' };
   }
@@ -93,12 +105,12 @@ export async function generateWhisper(
 /** 用一个确定的 provider/model 跑一次生成（候选链的一环；失败原样返回结构化原因，不吞）。 */
 async function generateWith(
   ctx: { llm?: unknown },
-  llm: { stream(o: unknown): AsyncIterable<unknown> },
+  llm: { stream(o: unknown): AsyncIterable<unknown>; timeoutMs?: () => number },
   sel: ModelRef,
   system: string,
   meme?: { name: string; desc: string },
 ): Promise<WhisperGenerateResult> {
-  const deadline = AbortSignal.timeout(TIMEOUT_MS);
+  const deadline = AbortSignal.timeout(deadlineFor(llm));
   // 仅当模型声明支持 reasoning effort（含 "off"）时才传，否则省略：
   // 无 reasoning 元数据的模型显式传 off 会被 dsh-llm 判为 UNSUPPORTED_REASONING_EFFORT，
   // 折叠成空流（表现为「模型未返回文本」）。

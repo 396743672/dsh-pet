@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { jsx } from 'react/jsx-runtime';
-import { makePetConfigSection, petBridge, en, zh } from '../../src/client/settings.ts';
+import { makePetConfigSection, petBridge } from '../../src/client/settings.ts';
+// 字典在 86c89a0 拆成一语言一文件，不再从 settings.ts 转出
+import { en } from '../../src/client/settings/locales/en.ts';
+import { zh } from '../../src/client/settings/locales/zh.ts';
 
 petBridge.current = window.initialConfig.main.pets;
 petBridge.template = petBridge.current[0];

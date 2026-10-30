@@ -33,6 +33,7 @@ export function flattenConfigPets(merged: Record<string, Record<string, unknown>
         font: conf.font as FontConfig | undefined,
         confineToScreen: conf.confineToScreen as boolean | undefined,
         workStatusTexts: conf.workStatusTexts as string[][] | undefined,
+        actionVoiceLines: conf.actionVoiceLines as Record<string, string> | undefined,
         whisperModel: conf.whisperModel as ModelSelection | undefined,
         chatModel: conf.chatModel as ModelSelection | undefined,
         // 表情包三件套：右键「配图」菜单要按配置里的清单与顺序分组，客户端不读磁盘，

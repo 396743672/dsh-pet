@@ -174,3 +174,59 @@ test('第三方返回空字节：判 generate-error，不留下 0 字节文件',
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('本地音色：合成走 vits 注入实现，产物是 .wav，edge 一次都不调', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pet-voice-vits-'));
+  try {
+    let edgeCalls = 0;
+    let vitsCalls = 0;
+    const voice = createVoiceService({
+      userRoot: root,
+      synthesize: async () => {
+        edgeCalls += 1;
+      },
+      vitsSynthesize: async (input) => {
+        vitsCalls += 1;
+        await writeFile(input.target, Buffer.from('RIFF....WAVEfmt '));
+      },
+    });
+    const first = await voice.speak({ text: '主人你好呀', voice: 'vits-theresa' });
+    assert.equal(first.ok, true);
+    assert.equal(vitsCalls, 1, '本地音色必须走 vits 实现');
+    assert.equal(edgeCalls, 0, '本地音色不该调 edge');
+    if (first.ok) {
+      assert.ok(first.file.endsWith('.wav'), '本地产物扩展名必须是 wav');
+      assert.equal(first.contentType, 'audio/wav');
+    }
+    const second = await voice.speak({ text: '主人你好呀', voice: 'vits-theresa' });
+    assert.equal(second.ok, true);
+    assert.equal(vitsCalls, 1, '第二次必须命中缓存');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('注册了第三方实现：本地音色也被第三方覆盖', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pet-voice-override-'));
+  let vitsCalls = 0;
+  const dispose = registerVoiceProvider({
+    id: 'my-tts',
+    name: '我的语音',
+    synthesize: async () => new Uint8Array([1]),
+  });
+  try {
+    const voice = createVoiceService({
+      userRoot: root,
+      synthesize: async () => undefined,
+      vitsSynthesize: async () => {
+        vitsCalls += 1;
+      },
+    });
+    const result = await voice.speak({ text: '你好', voice: 'vits-theresa' });
+    assert.equal(result.ok, true);
+    assert.equal(vitsCalls, 0, '第三方生效时本地实现不该被调');
+  } finally {
+    dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});

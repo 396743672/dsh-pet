@@ -21,6 +21,7 @@ import { createDownloadReport } from './plugin/download-report.ts';
 import { createWorkStatusBridge } from './plugin/work-status-bridge.ts';
 import { registerTodoReminders } from './plugin/todo-reminders.ts';
 import { createVoiceService } from './voice/speak.ts';
+import { disposeVits } from './voice/vits.ts';
 import { TODO_FILE_NAME, TodoStore } from './todo/store.ts';
 import { join } from 'node:path';
 import type { PetRouteDeps } from './routes/types.ts';
@@ -106,6 +107,8 @@ export function apply(ctx: any): void {
     // 语音合成：缓存落 userRoot，失败只留日志，不打断宿主
     voice: createVoiceService({ userRoot, log }),
   };
+  // 本地 VITS 的 worker 线程随插件卸载销毁；没起过线程时是空操作
+  ctx.effect(() => () => disposeVits(), 'dsh-pet: vits worker');
   const httpRoute = createHttpRoute(deps);
   registerHttpRoute(ctx, httpRoute.handlePetRoute);
 

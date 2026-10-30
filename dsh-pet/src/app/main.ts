@@ -14,13 +14,15 @@ import { flattenPetList, readAllConfig } from '../host/config.ts';
 import { dshHomeDir } from '../host/helper-process.ts';
 import { apply } from '../host/index.ts';
 import { createFileLogger, setDefaultLogger } from '../host/log-file.ts';
-import { createStandaloneAi } from '../standalone/ai-provider.ts';
+import { createStandaloneAi, type StandaloneAiService } from '../standalone/ai-provider.ts';
 import { packageVersion } from '../standalone/check.ts';
 import { createStandaloneContext, type RegisteredRoute } from '../standalone/context.ts';
 import { configPathsFor } from '../standalone/options.ts';
 import { createRequestSecurity } from '../standalone/request-security.ts';
+import { createVoiceSettings } from '../standalone/voice-settings.ts';
 
 import { installDesktopAuth, type DesktopSession } from './desktop-auth.ts';
+import { createProxyFetch, type ProxyNet, type ProxySession } from './proxy-fetch.ts';
 import { startRouter } from './router.ts';
 import { ROUTE_SEGMENT } from '../shared/constants.ts';
 
@@ -42,9 +44,10 @@ interface ElectronApp {
   on(event: 'second-instance', listener: () => void): void;
   on(event: 'will-quit', listener: () => void): void;
 }
-const { app, session } = createRequire(import.meta.url)('electron') as {
+const { app, session, net } = createRequire(import.meta.url)('electron') as {
   app: ElectronApp;
-  session: { defaultSession: DesktopSession };
+  session: { defaultSession: DesktopSession & ProxySession };
+  net: ProxyNet;
 };
 
 /** 包根目录：与 helper-process.ts 的 packageRoot 同一口径（模块所在目录的上一级） */
@@ -104,16 +107,58 @@ async function boot(): Promise<void> {
 
   // 与 CLI 同一套安全模型：令牌只经「配置页地址的 #token=」递给浏览器，不进日志
   const security = createRequestSecurity();
-  const ai = createStandaloneAi(dshHomeDir(), logger);
+  // 出网走 Chromium 网络栈：主进程里的 globalThis.fetch 是 Node 实现，既不读系统代理也指定不了代理，
+  // 「代理开着、应用直连」只会表现为每 30 秒超时一次。代理地址取自设置，保存后下一次请求即生效。
+  // 通道必须先于服务存在（服务构造时就要拿到 fetch），而它读的代理地址又来自服务自己：
+  // 用持有者转一手，绕开这个先后关系。
+  const aiHolder: { current: StandaloneAiService | undefined } = { current: undefined };
+  // boot 跑在 app ready 之前，而 session 与 net 都要等 ready 才能取；首个碎碎念可能比 ready 还早，
+  // 统一在这里等一次，否则会以「Session can only be received when app is ready」把整条通道打死。
+  const ready = app.whenReady();
+  const aiFetch = createProxyFetch({
+    net: {
+      fetch: async (input, init) => {
+        await ready;
+        return net.fetch(input, init);
+      },
+    },
+    session: {
+      setProxy: async (config) => {
+        await ready;
+        await session.defaultSession.setProxy(config);
+      },
+    },
+    proxyOf: () => aiHolder.current?.getSettings().proxyUrl ?? '',
+    log,
+  });
+  const ai = createStandaloneAi(dshHomeDir(), logger, { fetch: aiFetch });
+  aiHolder.current = ai;
   const context = createStandaloneContext({
     port: () => port,
     logger,
     routes,
     ai,
     authenticatedUrl: security.authenticatedUrl,
+    // 设置页保存语音后 POST /reload 就走这里：同进程里没有可重启的 Helper，
+    // 只能通知渲染端重拉 /config（入口由 runtime/electron-helper/main.js 注册到 globalThis）。
+    // 必须到请求时才取——boot 里 require(helperMain) 晚于本函数。
+    reloadDesktop: () => {
+      const reload = (globalThis as { __dshPetReloadDesktop?: () => unknown }).__dshPetReloadDesktop;
+      // 抛错而不是静默返回：由路由回退成「重启 Helper」并如实说未生效，别让设置页以为成功了。
+      if (typeof reload !== 'function') throw new Error('桌面宠物尚未就绪（Helper 未加载）');
+      return reload();
+    },
   });
 
-  const server = await startRouter(routes, { security, ai, log, status, landingPage });
+  const server = await startRouter(routes, {
+    security,
+    ai,
+    // 语音设置只改用户层顶层字段，路径与插件读的必须是同一份（configPathsFor 是唯一口径）
+    voice: createVoiceSettings(configPathsFor(packageRoot, dshHomeDir())),
+    log,
+    status,
+    landingPage,
+  });
   port = server.port;
   const origin = `http://127.0.0.1:${port}`;
   log(`本机服务 ${origin}`);

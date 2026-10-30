@@ -77,6 +77,13 @@ export interface StandaloneAiService {
   isReady(): boolean;
   /** 是否允许按间隔自动碎碎念。 */
   canWhisper(): boolean;
+  /**
+   * 让在途请求立刻让位：中止它并清空忙碌标记。
+   *
+   * 只有一个生成通道时，后台的自动碎碎念会把通道占满一整个超时窗口，
+   * 用户主动点的那一次就必然吃 busy。用户意图优先于定时任务，这是唯一的抢占用法。
+   */
+  preempt(): boolean;
   /** 终止在途请求并释放服务。 */
   dispose(): void;
 }

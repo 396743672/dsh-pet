@@ -187,6 +187,8 @@ export function createCardRuntime(rt: PetRuntime) {
     // 菜单动作派发：依赖运动、拖拽、提示与对话四处入口，所以放在它们之后。
     menuActionsRef.current ??= createMenuActions({
       animations: () => cfgRef.current.animations,
+      // 逐动作台词：条目级 actionVoiceLines 已由 flattenConfigPets 吹进每只实例
+      voiceLineOf: (anim) => cfgRef.current.actionVoiceLines?.[anim] ?? '',
       applyMerged: (merged) => petBridge.reload(merged),
       faceLeft: () => actions.setFacing('left'),
       isFacingRight: () => card.facingRef.current === 'right',

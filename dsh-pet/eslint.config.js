@@ -9,7 +9,9 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['lib/**', 'scripts/**', 'assets/**', 'runtime/**', 'node_modules/**'] },
+  // voice/** 是 patch.mjs 部署进来的运行件（sherpa-onnx 原生包 + 模型 + 第三方 JS，含 .cjs），
+  // 属生成物/第三方代码，不参与本仓库的 lint
+  { ignores: ['lib/**', 'scripts/**', 'assets/**', 'runtime/**', 'voice/**', 'node_modules/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

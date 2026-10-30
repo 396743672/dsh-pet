@@ -71,4 +71,9 @@ contextBridge.exposeInMainWorld('petBridge', {
   onDisplays(cb) {
     ipcRenderer.on('pet:displays', (e, geo) => cb(geo));
   },
+  // 配置热更新：设置页保存后主进程通知各窗口重拉 /config（换音色不能等重启窗口）。
+  // 频道名必须与 main.js 的 send 逐字一致。
+  onConfigChanged(cb) {
+    ipcRenderer.on('pet:config-changed', () => cb());
+  },
 });

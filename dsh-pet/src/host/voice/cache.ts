@@ -1,5 +1,6 @@
 /**
- * 语音缓存：按「音色 + 语速 + 文本」算键，落盘为 mp3，并按总量与条数淘汰最旧的。
+ * 语音缓存：按「来源 + 音色 + 语速 + 文本」算键，落盘为 mp3（Edge）或 wav（本地 VITS），
+ * 并按总量与条数淘汰最旧的。
  *
  * 命中即免合成——同一句话不管是自动播报还是用户点历史，都只合成一次。缓存只是加速，
  * 删掉任意文件都不影响正确性：下一次请求会重新合成。不负责合成与队列。
@@ -14,9 +15,12 @@ export const CACHE_MAX_BYTES = 20 * 1024 * 1024;
 /** 缓存文件条数上限。 */
 export const CACHE_MAX_FILES = 200;
 
-/** 缓存文件的完整路径：`<userRoot>/voice-cache/<key>.mp3`。 */
-export function cachePath(userRoot: string, key: string): string {
-  return join(userRoot, 'voice-cache', `${key}.mp3`);
+/** 缓存里会出现的声音文件扩展名：Edge 合成是 mp3，本地 VITS 合成是 wav。 */
+const AUDIO_EXTENSIONS = ['.mp3', '.wav'];
+
+/** 缓存文件的完整路径：`<userRoot>/voice-cache/<key>.<ext>`；ext 缺省 mp3（Edge）。 */
+export function cachePath(userRoot: string, key: string, ext = 'mp3'): string {
+  return join(userRoot, 'voice-cache', `${key}.${ext}`);
 }
 
 /**
@@ -63,7 +67,7 @@ export async function pruneCache(dir: string, limits: { maxBytes?: number; maxFi
   }
   const entries: { file: string; size: number; mtimeMs: number }[] = [];
   for (const name of names) {
-    if (!name.endsWith('.mp3')) continue;
+    if (!AUDIO_EXTENSIONS.some((ext) => name.endsWith(ext))) continue;
     const file = join(dir, name);
     try {
       const info = await stat(file);

@@ -97,6 +97,16 @@ export function createStandaloneAi(
         ? Promise.resolve({ ok: false, message: '服务已关闭' })
         : testAiConnection(runtime.fetcher, store.current(), input),
     canWhisper: () => runtime.ready() && store.current().automaticWhispers,
+    preempt() {
+      const active = runtime.active;
+      if (!active) return false;
+      // 先清标记再中止：中止的收尾是异步的，同步留位才能让紧接着的那次请求立刻拿到通道。
+      // finally 里的 `runtime.active === controller` 判定保证它不会误清新请求的标记。
+      runtime.active = undefined;
+      active.abort();
+      logger.info('Standalone AI: in-flight request preempted by a manual action.');
+      return true;
+    },
     dispose() {
       runtime.disposed = true;
       runtime.active?.abort();

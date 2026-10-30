@@ -24,6 +24,42 @@ function voiceTargetFor(pet: Record<string, unknown>): VoiceTarget | undefined {
   return pickVoiceSurface(String(pet.display ?? '')) ?? undefined;
 }
 
+/** 手动碎碎念遇「模型正忙」时的重试次数（含首次那次）。 */
+const MANUAL_RETRIES = 3;
+/** 两次重试之间的间隔（ms）：等前一个请求收尾，不叠加新请求。 */
+const MANUAL_RETRY_MS = 1500;
+
+/**
+ * 这一次失败是不是「模型正忙」（前一个请求还在跑）。
+ *
+ * 独立模式的生成通道是单飞的（同一时刻只允许一个在途请求），周期碎碎念正在生成时，
+ * 手动点会立刻拿到 busy。只认这个特征——其他失败（没配模型、生成炸了）重试也没意义。
+ */
+function isBusyFailure(result: { message?: string }): boolean {
+  return /busy/i.test(result.message ?? '');
+}
+
+/** 手动碎碎念失败时给用户看的一句话：右键点完必须有反应，且要说清是哪一类不行。 */
+function manualFailureText(result: { reason: string; message?: string }): string {
+  if (result.reason === 'provider-missing') return '本鱼还没接上模型，先打开 AI 设置配一下';
+  if (isBusyFailure(result)) return '本鱼手头正忙，过两秒再点';
+  const message = result.message ?? '';
+  // 超时与「连不上」是同一种用户可见现象：请求发出去了但没有回应。
+  // 这是独立模式最常见的失败（代理没生效 / 接口地址不通），必须点明，否则只会被当成卡壳。
+  if (/timed out|cancelled|abort/i.test(message)) return '本鱼连不上模型（超时），检查代理和接口地址';
+  if (/authentication|credentials|unauthoriz/i.test(message)) return '模型不认这个密钥，去 AI 设置重新填一下';
+  if (/rate limit/i.test(message)) return '模型那边限流了，过会儿再点';
+  if (/endpoint|model settings|no text/i.test(message)) return '接口或模型名不对，去 AI 设置看看';
+  return '本鱼卡壳了，等会儿再说';
+}
+
+/** 等待；只用于重试间隔，不参与任何状态机。不 unref：这段时间里还有一次请求在等着落地。 */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 /** 对话与记忆的输入：装配期对象与更早的工厂。 */
 export type ChatMemoryInput = {
   /** 宿主上下文（apply 收到的那一个）。 */
@@ -149,9 +185,25 @@ export function createChatMemory(deps: ChatMemoryInput) {
     }
     const meme = forced ?? (found.conf.whisperImageEnabled === true ? pickMeme(pool) : undefined);
     // 模型：条目配置的 whisperModel 优先（留空 = 不指定）；生成侧失败会回落到当前对话的模型重试一次
-    const result = await generateWhisper(ctx, system, meme, configuredModel(found.conf, 'whisperModel'));
+    const preferred = configuredModel(found.conf, 'whisperModel');
+    const attempt = (): ReturnType<typeof generateWhisper> => generateWhisper(ctx, system, meme, preferred);
+    // 用户手动点优先于定时任务：后台的自动碎碎念会把唯一的生成通道占满一整个超时窗口，
+    // 不掐掉它，这次点击必然吃 busy——「点了没反应」多半就是这么来的。
+    // DSH 模式的 llm 没有 preempt，可选调用即可，行为与以前一致。
+    if (kind === 'manual') (ctx.llm as { preempt?: () => boolean } | undefined)?.preempt?.();
+    let result = await attempt();
+    // 独立的模型通道一次只跑一个请求：自动周期还没收尾时，手动点会立刻回 busy。
+    // 用户手动点就是在等一句回应，隔一会儿再试比直接静默失败有用——只对手动重试，自动周期不重试。
+    for (
+      let tries = 1;
+      kind === 'manual' && result.ok === false && isBusyFailure(result) && tries < MANUAL_RETRIES;
+      tries++
+    ) {
+      await delay(MANUAL_RETRY_MS);
+      result = await attempt();
+    }
     if (!result.ok) {
-      // 失败不写 S：静默跳过 + warn，不伪造文案、不弹错误气泡
+      // 失败不写生成内容：静默跳过 + warn，不伪造文案
       log.warn(
         '[dsh-pet] 碎碎念生成失败 pet=' +
           petId +
@@ -159,6 +211,9 @@ export function createChatMemory(deps: ChatMemoryInput) {
           result.reason +
           (result.message ? ' ' + result.message : ''),
       );
+      // 手动触发必须看得见结果：只打日志的话，用户右键点完就是「没反应」。
+      // 写一条短说明进 say 叶子（不带 voiceTo，不念出来），与正常碎碎念同一条展示链路。
+      if (kind === 'manual') state.writePet(petId, 'say', { text: manualFailureText(result) });
       // 真实 reason 原样带回：路由若把失败硬编码成 generate-error，独立模式下已算出的
       // provider-missing 就会在边界被吞掉（API.md 描述的降级 reason 正是它）。
       return result;

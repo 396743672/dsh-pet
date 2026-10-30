@@ -93,9 +93,18 @@ export function setSurface(next: unknown): void {
  * @param enabled - 播报总开关（严格 `=== true` 才算开启）。
  */
 export function setVoiceConfig(name: unknown, enabled: unknown): void {
-  voiceName = typeof name === 'string' ? name : '';
+  const next = typeof name === 'string' ? name : '';
+  // 换音色必须让音效缓存整体作废：语气词是「用当时那个音色」合成的，留着旧 blob 就会出现
+  // 「设置里改了、点一下还是旧声音」——而这段代码本来就是为了让改音色立刻生效。
+  if (next !== voiceName) {
+    cueBlobs.clear();
+    cuePending.clear();
+    cueWarmed = false;
+  }
+  voiceName = next;
   voiceEnabled = enabled === true;
   configLoaded = true;
+  prewarmCues(); // 音色已知才预热短语音效（开关开着时才会真的发合成请求）
 }
 
 /** 懒加载成品配置；失败按「不播」处理，且只试一次（避免每句都发请求）。 */
@@ -160,22 +169,96 @@ async function speak(text: string): Promise<void> {
       setVoiceState('failed');
       return;
     }
-    const objectUrl = URL.createObjectURL(await response.blob());
-    const audio = new Audio(objectUrl);
-    // 播完或出错都要释放，否则每句留一个 blob 引用
-    audio.onended = () => URL.revokeObjectURL(objectUrl);
-    audio.onerror = () => URL.revokeObjectURL(objectUrl);
-    // 音频就绪即置 ready：喇叭表示「这句有语音」，不跟播放进度绑定
+    const handle = await playBlob(await response.blob());
+    if (!handle) {
+      setVoiceState('failed');
+      return;
+    }
+    // 播放引擎就绪即置 ready：喇叭表示「这句有语音」，不跟播放进度绑定
     setVoiceState('ready');
-    await audio.play();
+    if ((await handle.done) === 'failed') setVoiceState('failed');
   } catch {
     /* 含超时：气泡已经显示，失败也不能反过来打断渲染，只把图标换成静音喇叭 */
     setVoiceState('failed');
   }
 }
 
-/** 手动点播时正在响的那个音频；新的一句先掐掉旧的，避免两句话叠在一起。 */
-let manualAudio: HTMLAudioElement | null = null;
+/** 全页共享的 Web Audio 上下文；懒创建，失败由调用方兜底。 */
+let audioContext: AudioContext | null = null;
+
+/** 一次已开跑的播放：`done` 在播完（或被 `stop`）时给 `ended`，无法播放时给 `failed`。 */
+interface PlaybackHandle {
+  stop(): void;
+  readonly done: Promise<'ended' | 'failed'>;
+}
+
+/**
+ * 播一段音频 blob：首选 Web Audio（`AudioContext.decodeAudioData` + `BufferSource`，mp3/wav 通吃），
+ * 环境不支持或解码失败时回落到 `HTMLAudioElement`——两端最终都收敛成同一个 {@link PlaybackHandle}。
+ * @param blob - 合成接口返回的音频（audio/mpeg 或 audio/wav）。
+ * @returns 播放句柄；两种引擎都起不来时给 null。
+ */
+async function playBlob(blob: Blob): Promise<PlaybackHandle | null> {
+  try {
+    const Ctor = (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
+    if (Ctor) {
+      const context = audioContext ?? (audioContext = new Ctor());
+      if (context.state === 'suspended') await context.resume();
+      const buffer = await context.decodeAudioData(await blob.arrayBuffer());
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      const done = new Promise<'ended' | 'failed'>((resolve) => {
+        source.onended = () => resolve('ended');
+      });
+      source.start();
+      return {
+        done,
+        stop: () => {
+          try {
+            source.stop();
+          } catch {
+            /* 已经播完，onended 已走 */
+          }
+        },
+      };
+    }
+  } catch {
+    /* 落到 HTMLAudio 兜底：多半是 AudioContext 被自动播放策略挂起 */
+  }
+  return playViaElement(blob);
+}
+
+/** HTMLAudio 兜底播放；语义与 Web Audio 路径一致（`done` 区分播完与失败）。 */
+function playViaElement(blob: Blob): PlaybackHandle | null {
+  try {
+    const objectUrl = URL.createObjectURL(blob);
+    const audio = new Audio(objectUrl);
+    // 收尾函数由 Promise 执行器同步赋值：撤销 blob 引用只做一次，结束状态只取先到的那个
+    let finish: (outcome: 'ended' | 'failed') => void = () => undefined;
+    const done = new Promise<'ended' | 'failed'>((resolve) => {
+      finish = (outcome) => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(outcome);
+      };
+    });
+    audio.onended = () => finish('ended');
+    audio.onerror = () => finish('failed');
+    void audio.play().catch(() => finish('failed'));
+    return {
+      done,
+      stop: () => {
+        audio.pause();
+        finish('ended');
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 手动点播时正在响的那个播放；新的一句先掐掉旧的，避免两句话叠在一起。 */
+let manualHandle: PlaybackHandle | null = null;
 
 /** 手动点播对外暴露的阶段；`idle` = 没在放（含被打断），`failed` = 合成没成功。 */
 export type SpeakPhase = 'idle' | 'loading' | 'playing' | 'failed';
@@ -201,9 +284,9 @@ export function speakText(text: string, onPhase?: (phase: SpeakPhase) => void): 
 async function playManual(text: string, onPhase?: (phase: SpeakPhase) => void): Promise<void> {
   const token = ++manualSeq;
   await loadConfigOnce();
-  if (manualAudio) {
-    manualAudio.pause();
-    manualAudio = null;
+  if (manualHandle) {
+    manualHandle.stop();
+    manualHandle = null;
   }
   if (token !== manualSeq) return; // 等配置期间又被点了一次：这次直接让位
   onPhase?.('loading');
@@ -219,22 +302,177 @@ async function playManual(text: string, onPhase?: (phase: SpeakPhase) => void): 
       onPhase?.('failed');
       return;
     }
-    const objectUrl = URL.createObjectURL(await response.blob());
+    const handle = await playBlob(await response.blob());
     if (token !== manualSeq) return;
-    const audio = new Audio(objectUrl);
-    audio.onended = () => {
-      URL.revokeObjectURL(objectUrl);
-      if (manualAudio === audio) {
-        manualAudio = null;
-        onPhase?.('idle');
-      }
-    };
-    audio.onerror = () => URL.revokeObjectURL(objectUrl);
-    manualAudio = audio;
+    if (!handle) {
+      onPhase?.('failed');
+      return;
+    }
+    manualHandle = handle;
     onPhase?.('playing');
-    await audio.play();
+    const outcome = await handle.done;
+    if (token !== manualSeq) return; // 播放期间被新的一次点播作废：状态归新的那次管
+    if (manualHandle === handle) manualHandle = null;
+    onPhase?.(outcome === 'ended' ? 'idle' : 'failed');
   } catch {
     /* 含超时：面板里还有文字，不弹错误打断阅读，只把按钮换成失败态 */
     if (token === manualSeq) onPhase?.('failed');
+  }
+}
+
+// ============================ 短语音效（点击 / 菜单点播） ============================
+
+/**
+ * 音效种类。
+ *
+ * 只覆盖「用户主动发起」的两类动作：点击宠物、右键菜单点播动画。
+ * 待机与随机漫游不发声——那些几秒一次，出声就是噪音。
+ */
+export type CueKind = 'click';
+
+/**
+ * 每类音效的候选短句（纯语气词，不含信息）。
+ *
+ * 用当前音色合成，所以换音色后这些短句跟着换人；内容刻意极短（1–3 字），
+ * 合成快、缓存小、播完不拖沓。点播动作的出声走 playActionLine（台词或动作名），不在此列。
+ */
+const CUE_TEXTS: Record<CueKind, readonly string[]> = {
+  click: ['嗯？', '干嘛？', '哼'],
+};
+
+/** 音效开关；由成品配置的 `clickSoundEnabled` 注入（与「点击音效」是同一个开关）。 */
+let cueEnabled = false;
+/** 已合成的短语音频；内存留一份，避免每次点击都重新解 blob。 */
+const cueBlobs = new Map<string, Blob>();
+/** 正在合成的短句；同一句并发点了两下也只发一次请求。 */
+const cuePending = new Map<string, Promise<Blob | null>>();
+/** 预热只做一次（每端一次）。 */
+let cueWarmed = false;
+/** 音效节流窗口：连点不该变成一串「嗯？」。 */
+const CUE_THROTTLE_MS = 150;
+/** 上一次播放音效的时刻。 */
+let lastCueAt = 0;
+/** 音效合成超时：点击这种交互等不起 20s，宁可回落到内置音效。 */
+const CUE_TIMEOUT_MS = 6000;
+/** 逐动作台词的合成超时：台词比语气词长（可达十几字），给到与整句播报接近的宽限。 */
+const ACTION_LINE_TIMEOUT_MS = 15_000;
+
+/**
+ * 打开或关闭短语音效。
+ * @param enabled - 成品配置里的 `clickSoundEnabled`（严格 `=== true` 才算开）。
+ */
+export function setCueEnabled(enabled: unknown): void {
+  cueEnabled = enabled === true;
+  prewarmCues();
+}
+
+/**
+ * 预热：把每句语气词先合成一遍（宿主侧落盘缓存，之后命中只要十几毫秒）。
+ *
+ * 必须在音色已知之后才会真的跑（`configLoaded`），否则会拿默认音色合成一批用不上的音频。
+ * 串行执行：宿主合成队列只有 3 个名额，并发只会互相挤掉。
+ */
+export function prewarmCues(): void {
+  if (cueWarmed || !cueEnabled || !configLoaded) return;
+  cueWarmed = true;
+  void (async () => {
+    for (const text of new Set(Object.values(CUE_TEXTS).flat())) {
+      await loadCue(text);
+    }
+  })();
+}
+
+/**
+ * 播一个音效；开关关闭、节流中或环境不支持时静默返回。
+ *
+ * 首选当前音色的短语气词；合成失败（没部署本地语音、断网、宿主拒绝）时退回内置的
+ * `click-duck.wav`——「点了没反应」比音色不统一更糟。
+ *
+ * @param kind - 音效种类：点击 / 菜单点播。
+ */
+export function playCue(kind: CueKind): void {
+  if (!cueEnabled) return;
+  const now = Date.now();
+  if (now - lastCueAt < CUE_THROTTLE_MS) return;
+  lastCueAt = now;
+  const texts = CUE_TEXTS[kind];
+  const text = texts[Math.floor(Math.random() * texts.length)] ?? texts[0];
+  const cached = cueBlobs.get(text);
+  if (cached) {
+    void playBlob(cached);
+    return;
+  }
+  void loadCue(text).then((blob) => {
+    if (blob) void playBlob(blob);
+    else playFallbackSound();
+  });
+}
+
+/**
+ * 播一句「逐动作台词」（配置 `actionVoiceLines` 里给该动作写的那句话）。
+ *
+ * 门控与节流和 {@link playCue} 同一套：同一个「音效」开关管两件事——它是动作音效的增强，
+ * 不是新的语音播报通道，不该绕过用户关掉的静音；节流共用一个窗口，连点不会叠声。
+ * 缓存复用 cueBlobs（键是文本），换音色时随整体一起作废。
+ * 台词没配 / 合成失败都由调用方决定要不要回落固定确认音。
+ *
+ * @param text - 该动作配置的台词正文。
+ */
+export function playActionLine(text: string): void {
+  if (!cueEnabled || !text) return;
+  const now = Date.now();
+  if (now - lastCueAt < CUE_THROTTLE_MS) return;
+  lastCueAt = now;
+  const cached = cueBlobs.get(text);
+  if (cached) {
+    void playBlob(cached);
+    return;
+  }
+  void loadCue(text, ACTION_LINE_TIMEOUT_MS).then((blob) => {
+    if (blob) void playBlob(blob);
+    else playFallbackSound();
+  });
+}
+
+/** 合成一句短语音频并留在内存；失败给 null（调用方回落内置音效）。 */
+function loadCue(text: string, timeoutMs = CUE_TIMEOUT_MS): Promise<Blob | null> {
+  const cached = cueBlobs.get(text);
+  if (cached) return Promise.resolve(cached);
+  const pending = cuePending.get(text);
+  if (pending) return pending;
+  const task = (async (): Promise<Blob | null> => {
+    try {
+      const response = await fetch(voiceBase + '/voice/speak', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, ...(voiceName ? { voice: voiceName } : {}) }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok || !(response.headers.get('content-type') ?? '').includes('audio')) return null;
+      const blob = await response.blob();
+      cueBlobs.set(text, blob);
+      return blob;
+    } catch {
+      return null;
+    } finally {
+      cuePending.delete(text);
+    }
+  })();
+  cuePending.set(text, task);
+  return task;
+}
+
+/** 内置音效：单例 audio，音量与旧版点击音效一致。 */
+let fallbackAudio: HTMLAudioElement | null = null;
+
+/** 播内置点击音效；音频不可用时静默（没有声音不该变成报错）。 */
+function playFallbackSound(): void {
+  try {
+    fallbackAudio ??= new Audio(voiceBase + '/sound/click-duck.wav');
+    fallbackAudio.volume = 0.5;
+    fallbackAudio.currentTime = 0;
+    void fallbackAudio.play().catch(() => {});
+  } catch {
+    /* 音频不可用：静默忽略 */
   }
 }

@@ -19,8 +19,21 @@ export async function handleDesktopRoutes(deps: PetRouteDeps, input: RouteInput)
   // 就地重拉做不到这几项。发起者就是即将被重启的 helper，故不 await、立刻回 200。
   if (rest === 'reload') {
     if (method !== 'POST') return methodNotAllowed();
+    // 同进程应用（src/app/main.ts）里没有可重启的 Helper——startHelper 在那边是空实现，
+    // 于是 requestRestart() 看起来成功、实际什么都没做（「提示正在重载，音色一直不变」的真因）。
+    // 宿主若提供 reloadDesktop，就走「通知渲染端重拉 /config」的热重载：不重建窗口、不闪、位置不变。
+    // DSH 双进程模式没有这个服务，仍旧重启 Helper（display/size 的变化只能靠重建窗口生效）。
+    const hot = optionalService('reloadDesktop');
+    if (typeof hot === 'function') {
+      try {
+        const sent = (hot as () => unknown)();
+        return okResult({ reloading: true, mode: 'hot', windows: typeof sent === 'number' ? sent : undefined });
+      } catch (e: unknown) {
+        log.warn(`[dsh-pet] 配置热重载失败，改为重启 Helper：${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     void requestRestart();
-    return okResult({ reloading: true });
+    return okResult({ reloading: true, mode: 'restart' });
   }
 
   // 托盘「退出」（托盘菜单 → GET 探能力 / POST 执行，issue #178）。不能让 helper 自己 app.quit()：

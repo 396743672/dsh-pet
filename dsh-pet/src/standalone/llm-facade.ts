@@ -15,7 +15,9 @@ export interface StandaloneModelService {
   stream(options: unknown): AsyncIterable<unknown>;
   isReady(): boolean;
   canWhisper(): boolean;
-  getSettings(): { whisperIntervalSec: number };
+  /** 让在途请求让位（用户手动触发优先于定时任务）。 */
+  preempt(): boolean;
+  getSettings(): { whisperIntervalSec: number; timeoutMs: number };
   dispose(): void;
 }
 
@@ -25,6 +27,10 @@ export interface LlmFacade {
   listModels(provider: string): Promise<unknown[]>;
   resolveModelInfo(provider?: string, model?: string, signal?: AbortSignal): Promise<unknown>;
   stream(request: unknown): AsyncIterable<unknown>;
+  /** 本服务声明的单次请求超时（ms）：碎碎念的本地截止时间要跟它对齐。 */
+  timeoutMs?(): number;
+  /** 可选的抢占能力：宿主在没有它时（DSH 模式）保持原有行为。 */
+  preempt?(): boolean;
 }
 
 /** 有 AI 服务：直接转调，不做任何转换。 */
@@ -34,6 +40,9 @@ export function createLlmFacade(ai: StandaloneModelService): LlmFacade {
     listModels: (provider) => ai.listModels(provider),
     resolveModelInfo: (provider, model, signal) => ai.resolveModelInfo(provider, model, signal),
     stream: (request) => ai.stream(request),
+    // 设置里调大超时后，碎碎念的本地截止时间要跟着放开，否则用户设的 60 秒永远不生效
+    timeoutMs: () => ai.getSettings().timeoutMs,
+    preempt: () => ai.preempt(),
   };
 }
 

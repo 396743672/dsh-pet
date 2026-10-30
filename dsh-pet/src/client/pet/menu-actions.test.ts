@@ -8,6 +8,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createMenuActions, type MenuActionDeps } from './menu-actions.ts';
+import { setCueEnabled } from '../../shared/voice.ts';
 import type { MenuLeaf } from '../../shared/menu.ts';
 import type { Animations } from '../../shared/types.ts';
 
@@ -28,6 +29,7 @@ function harness(overrides: Partial<MenuActionDeps> = {}) {
   const deps: MenuActionDeps = {
     petId: 'pet-1',
     animations: () => animations,
+    voiceLineOf: () => '',
     isFacingRight: () => true,
     faceLeft: () => calls.push('faceLeft'),
     tryMove: () => 'walk1',
@@ -119,6 +121,58 @@ describe('createMenuActions —— 点播动画', () => {
     const { actions, calls } = harness({ isFacingRight: () => false });
     actions.run({ label: 'say1', anim: 'say1' } as MenuLeaf);
     assert.deepEqual(calls, ['stopMove', 'playOnce:say1:null']);
+  });
+});
+
+describe('createMenuActions —— 逐动作台词', () => {
+  /** 临时接管全局 fetch（playCue/playActionLine 的合成请求走它），记录请求体的 text。 */
+  function captureSpeak(): { texts: string[]; restore: () => void } {
+    const texts: string[] = [];
+    const original = globalThis.fetch;
+    (globalThis as { fetch: unknown }).fetch = async (_input: unknown, init?: { body?: string }) => {
+      texts.push(String((JSON.parse(init?.body ?? '{}') as { text?: unknown }).text ?? ''));
+      return { ok: true, headers: { get: () => 'audio/mpeg' }, blob: async () => ({ size: 1 }) };
+    };
+    return {
+      texts,
+      restore: () => {
+        (globalThis as { fetch: unknown }).fetch = original;
+      },
+    };
+  }
+
+  /** 跨过节流窗口（音效 150ms 节流是模块级状态，用例之间要隔开）。 */
+  async function passThrottle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 170));
+  }
+
+  test('配了台词的动作：点播合成那句台词，而不是固定确认音', async () => {
+    const captured = captureSpeak();
+    const { actions } = harness({ voiceLineOf: (anim) => (anim === 'idle1' ? '这是我配的台词' : '') });
+    try {
+      setCueEnabled(true); // 台词与确认音同受「音效」开关门控，测试里先打开
+      await passThrottle();
+      actions.run({ label: 'idle1', anim: 'idle1' } as MenuLeaf);
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      setCueEnabled(false);
+      captured.restore();
+    }
+    assert.deepEqual(captured.texts, ['这是我配的台词']);
+  });
+
+  test('没配台词的动作：念动作名（零配置即每个动作都有专属声音）', async () => {
+    const captured = captureSpeak();
+    try {
+      setCueEnabled(true);
+      await passThrottle();
+      harness().actions.run({ label: 'idle1', anim: 'idle1' } as MenuLeaf);
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      setCueEnabled(false);
+      captured.restore();
+    }
+    assert.deepEqual(captured.texts, ['idle1']);
   });
 });
 

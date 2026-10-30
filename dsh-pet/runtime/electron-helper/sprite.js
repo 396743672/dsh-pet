@@ -14,29 +14,10 @@ const OPEN_SHORTCUT_HINT = /Mac/i.test(navigator.platform || navigator.userAgent
 /** 本次点击是否按住了「呼出 DSH」的修饰键（Ctrl / Cmd） */
 const isOpenShortcut = (e) => !!(e && (e.ctrlKey || e.metaKey));
 
-// 点击音效：与浏览器端同一套参数（单例 audio、音量 0.5、100ms 节流、失败静默）。
-// 复用素材通道：bridge 模式由主进程取回音频，普通模式仍走 HTTP。
-const CLICK_SOUND_URL = BASE + '/sound/click-duck.wav';
-const CLICK_SOUND_VOLUME = 0.5;
-const CLICK_SOUND_THROTTLE_MS = 100;
-let clickAudio = null;
-let lastClickSoundAt = 0;
-const playClickSound = () => {
-  // 开关来自成品配置 main.clickSoundEnabled（renderer.js 的 loadConfig 带入）；缺失一律静音
-  if (!config || config.clickSoundEnabled !== true) return;
-  const now = Date.now();
-  if (now - lastClickSoundAt < CLICK_SOUND_THROTTLE_MS) return;
-  lastClickSoundAt = now;
-  try {
-    clickAudio = clickAudio || new Audio(CLICK_SOUND_URL);
-    clickAudio.volume = CLICK_SOUND_VOLUME;
-    clickAudio.currentTime = 0;
-    const p = clickAudio.play();
-    if (p && typeof p.catch === 'function') p.catch(() => {});
-  } catch {
-    /* 音频不可用：静默忽略 */
-  }
-};
+// 点击音效：实现在共享层（S.playCue）——用当前音色合成一句极短语气词，合成不出来时
+// 回落内置 assets/sound/click-duck.wav。开关、节流、内存缓存都在那一份实现里，
+// 这里只保留一个薄封装，避免桌面端和网页端的音效行为各走一套。
+const playClickSound = () => S.playCue('click');
 
 // 单只宠物：行为与浏览器 PetCard 一致，纯逻辑来自 src/shared
 class PetSprite {

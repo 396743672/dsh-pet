@@ -28,7 +28,7 @@ export async function handleVoiceRoutes(deps: PetRouteDeps, input: RouteInput): 
     }
     const result = await deps.voice.speak(parsed);
     if (!result.ok) return failResult(result.reason, result.message);
-    return { kind: 'file', file: result.file, contentType: 'audio/mpeg' };
+    return { kind: 'file', file: result.file, contentType: result.contentType ?? 'audio/mpeg' };
   }
 
   return undefined;

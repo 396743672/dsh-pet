@@ -64,6 +64,8 @@ export async function testAiConnection(
     whisperIntervalSec: 300,
     maxTokens: 32,
     timeoutMs: PROBE_TIMEOUT_MS,
+    // 探测也走同一个 fetcher：代理已由出网通道按已保存设置下发，这里只补齐类型
+    proxyUrl: current.proxyUrl,
   };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);

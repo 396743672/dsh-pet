@@ -49,6 +49,13 @@ export interface StandaloneContextOptions {
    * 只有独立模式提供：DSH 内的桌面模式不挂这个字段，关掉整个 DSH 不该由一只宠物决定。
    */
   shutdown?: (reason: string) => void;
+  /**
+   * 让桌面宠物就地重拉配置（设置页保存语音/音效后的 `POST /reload`）。
+   *
+   * 同进程应用没有可重启的 Helper：不提供它，`/reload` 会「成功」但什么都不做——
+   * 表现就是设置页提示「正在按新音色重载」、音色却始终不变。返回被通知的窗口数（可为 undefined）。
+   */
+  reloadDesktop?: () => unknown;
 }
 
 /** 伪 ctx 与它的生命周期。 */
@@ -165,6 +172,8 @@ export function createStandaloneContext(options: StandaloneContextOptions): Stan
       : {}),
     // 托盘退出的能力开关：宿主路由只看这个字段在不在，停机实现由 cli.ts 提供。
     ...(options.shutdown ? { shutdownApp: options.shutdown } : {}),
+    // 桌面配置热重载：只有独立应用提供（同进程里没有可重启的 Helper，见 StandaloneContextOptions）。
+    ...(options.reloadDesktop ? { reloadDesktop: options.reloadDesktop } : {}),
     commands: { register: (): (() => void) => () => {} },
     agentDefaultModel: {
       currentSelection: (): { provider: string; model: string } =>

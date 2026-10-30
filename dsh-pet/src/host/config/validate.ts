@@ -108,6 +108,15 @@ export function modelSelectionValid(value: unknown): boolean {
   return (m.provider.trim() === '') === (m.model.trim() === '');
 }
 
+/** actionVoiceLines 段校验：动画名 → 台词（非空字符串）。空对象合法（全都没配）。 */
+function actionVoiceLinesValid(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  for (const line of Object.values(value as Record<string, unknown>)) {
+    if (typeof line !== 'string' || line.trim() === '') return false;
+  }
+  return true;
+}
+
 /** workStatusTexts 段校验：二维数组——外层每项都是非空字符串数组（档位文案，每档可多句随机）；空数组不可用 */
 function workStatusTextsValid(value: unknown): boolean {
   if (!Array.isArray(value) || value.length === 0) return false;
@@ -175,6 +184,8 @@ export function topFieldValid(key: string, value: unknown): boolean {
       return modelSelectionValid(value);
     case 'workStatusTexts':
       return workStatusTextsValid(value);
+    case 'actionVoiceLines':
+      return actionVoiceLinesValid(value);
     default:
       return true;
   }

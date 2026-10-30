@@ -42,6 +42,9 @@ dsh-pet/runtime/electron-helper/shared-core.js
 # ── dsh-pet 桌宠应用打包产物（electron-builder 输出，`node scripts/dist.mjs` 可重生）──
 dsh-pet/dist-app/
 
+# ── dsh-pet 本地语音运行件（仓库根 `node patch.mjs` 部署，100+ MB 模型与 sherpa-onnx 运行时，可重下）──
+dsh-pet/voice/
+
 # ── IDE / 编辑器 ──
 .idea/
 .vscode/
@@ -51,3 +54,6 @@ dsh-pet/dist-app/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ── 本地工作区数据（WorkBuddy 会话记忆等，不入仓库）──
+.workbuddy/

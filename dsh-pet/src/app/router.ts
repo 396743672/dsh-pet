@@ -13,13 +13,21 @@ import type { AddressInfo } from 'node:net';
 import type { RegisteredRoute } from '../standalone/context.ts';
 import { boundedRequest, MAX_REQUEST_BYTES, MAX_SETTINGS_BYTES } from '../standalone/request-body.ts';
 import { rejectRequest, type RequestSecurity } from '../standalone/request-security.ts';
-import { settingsHandler, testHandler, type StandaloneServerOptions } from '../standalone/server.ts';
+import {
+  settingsHandler,
+  testHandler,
+  voiceSettingsHandler,
+  type StandaloneServerOptions,
+} from '../standalone/server.ts';
 import { settingsPage, settingsScript, settingsStyle } from '../standalone/settings-page.ts';
+import type { VoiceSettingsService } from '../standalone/voice-settings.ts';
 
 /** 路由依赖：安全校验、AI 处理器与两个页面的数据源，全部注入以脱离 Electron 测试。 */
 interface RouterDeps {
   security: RequestSecurity;
   ai?: StandaloneServerOptions['ai'];
+  /** 语音与音效设置（语音页的读写口）；缺失时该端点回 503。 */
+  voice?: VoiceSettingsService;
   log(message: string): void;
   status(port: number): unknown;
   landingPage(port: number): string;
@@ -36,6 +44,7 @@ export function startRouter(
 ): Promise<{ port: number; close: () => Promise<void> }> {
   const settings = settingsHandler(deps.ai);
   const tester = testHandler(deps.ai);
+  const voice = voiceSettingsHandler(deps.voice);
   let boundPort = 0;
 
   const server = createServer((req, res) => {
@@ -82,6 +91,10 @@ export function startRouter(
         await (url.pathname === '/standalone-ai/test' ? tester : settings)(request, res);
         return;
       }
+      if (url.pathname === '/standalone-voice/settings') {
+        await voice(request, res);
+        return;
+      }
       if (!route) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('not found');
@@ -96,7 +109,10 @@ export function startRouter(
     const bodyMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
     void (async () => {
       if (hasBody || bodyMethod) {
-        const limit = url.pathname === '/standalone-ai/settings' ? MAX_SETTINGS_BYTES : MAX_REQUEST_BYTES;
+        const limit =
+          url.pathname === '/standalone-ai/settings' || url.pathname === '/standalone-voice/settings'
+            ? MAX_SETTINGS_BYTES
+            : MAX_REQUEST_BYTES;
         const bounded = await boundedRequest(req, res, limit);
         if (bounded) await dispatch(bounded);
       } else await dispatch(req);

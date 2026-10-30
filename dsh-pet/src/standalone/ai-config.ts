@@ -27,6 +27,8 @@ export interface StandaloneAiPublicSettings {
   maxTokens: number;
   /** 单次请求超时，单位毫秒。 */
   timeoutMs: number;
+  /** 出网代理地址（如 `http://127.0.0.1:7897`）；空串表示跟随系统代理。 */
+  proxyUrl: string;
   /** 是否已保存密钥，不回传密钥本身。 */
   hasKey: boolean;
 }
@@ -43,6 +45,7 @@ export const DEFAULT_AI_SETTINGS: Readonly<StandaloneAiSettings> = Object.freeze
   whisperIntervalSec: 300,
   maxTokens: 1024,
   timeoutMs: 30_000,
+  proxyUrl: '',
   apiKey: '',
 });
 
@@ -70,6 +73,32 @@ function containsControlChar(s: string): boolean {
   return false;
 }
 
+/** 允许的代理协议：Chromium 的 proxyRules 认这些前缀。 */
+const PROXY_PROTOCOLS: readonly string[] = ['http:', 'https:', 'socks4:', 'socks5:'];
+
+/**
+ * 规范化代理地址：空串原样返回（= 跟随系统代理），省略协议时按 http 处理。
+ *
+ * 只接受 `协议://主机[:端口]`：账号、路径与查询参数写在这里只会让 Chromium 丢掉整条规则，
+ * 表现成「填了代理却没生效」，所以在保存前就拒掉。
+ * @param value - 用户填写的原始地址。
+ * @returns 规范化后的地址：`协议//主机:端口`。
+ * @throws 含空白/控制字符、协议不支持或带多余成分时抛出。
+ */
+function normalizeProxy(value: string): string {
+  const raw = value.trim();
+  if (!raw) return '';
+  if (/[\s\\]/.test(raw) || containsControlChar(raw)) throw new Error('Invalid proxy');
+  const url = new URL(raw.includes('://') ? raw : 'http://' + raw);
+  if (!PROXY_PROTOCOLS.includes(url.protocol)) throw new Error('Invalid proxy protocol');
+  if (!url.hostname) throw new Error('Invalid proxy host');
+  // socks 不是 WHATWG 的特殊协议，pathname 是空串而不是 '/'，两种都要算「没有多余尾巴」。
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+    throw new Error('Invalid proxy');
+  }
+  return url.protocol + '//' + url.host;
+}
+
 /** 成品配置的字段契约：长度、范围与字符集在这里一次定死。 */
 const fields = {
   protocol: z.enum(['openai-compatible', 'anthropic']),
@@ -84,6 +113,7 @@ const fields = {
   whisperIntervalSec: z.number().int().min(60).max(86400),
   maxTokens: z.number().int().min(128).max(4096),
   timeoutMs: z.number().int().min(1000).max(60_000),
+  proxyUrl: z.string().max(2048),
   apiKey: z
     .string()
     .max(4096)
@@ -109,6 +139,8 @@ export function validateSettings(input: unknown, previous: Readonly<StandaloneAi
     const { clearApiKey, ...values } = patch;
     const apiKey = clearApiKey ? '' : values.apiKey || previous.apiKey;
     const next = persistedSchema.parse({ ...previous, ...values, apiKey });
+    // 代理地址在合并后统一规范化：缺省为空串 = 跟随系统代理。
+    next.proxyUrl = normalizeProxy(next.proxyUrl);
     // 启用前必须有地址、模型与密钥，避免发出必然失败的请求。
     if (next.enabled && (!next.model || !next.baseUrl || !next.apiKey)) throw new Error('Incomplete settings');
     return next;
@@ -144,8 +176,9 @@ export function createAiConfig(home: string): AiConfigStore {
   try {
     const loaded = readAiSettings(home);
     // 持久化内容也要重新校验，坏数据不能进入内存。
-    if (loaded !== undefined)
-      settings = Object.freeze(validateSettings(persistedSchema.parse(loaded), DEFAULT_AI_SETTINGS));
+    // 走 validateSettings 而不是直接 parse 落盘结构：后者要求字段齐全，任何新增字段
+    // （如 proxyUrl）都会让老配置文件在升级后整份读不出来，表现为「AI 突然全没了」。
+    if (loaded !== undefined) settings = Object.freeze(validateSettings(loaded, DEFAULT_AI_SETTINGS));
   } catch {
     // 读取失败说明无法确认文件权限，宁可整体失败。
     throw new Error('Cannot securely load standalone AI settings.');

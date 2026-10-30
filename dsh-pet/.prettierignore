@@ -9,3 +9,5 @@ pnpm-workspace.yaml
 # 打包产物与一次性冒烟原型：都是生成物，不参与格式检查
 dist-app
 .smoke-app
+# 本地语音运行件（仓库根 `node patch.mjs` 部署进来的 sherpa-onnx 运行时与模型，含第三方 JS）
+voice

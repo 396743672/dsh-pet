@@ -106,7 +106,7 @@ dsh-pet 的宿主半侧向 DSH 自己的 Web 服务注册了**一条前缀路由
 
 | 接口 | 功能 |
 | --- | --- |
-| `POST /dsh-pet-7340/voice/speak` | 合成并返回 mp3：`{ text, voice?, rate? }`；同一输入命中缓存，队列最多排 3 个 |
+| `POST /dsh-pet-7340/voice/speak` | 合成并返回音频（Edge 音色 mp3 / 本地 VITS 音色 wav）：`{ text, voice?, rate? }`；同一输入命中缓存，队列最多排 3 个 |
 | `GET /dsh-pet-7340/voice/voices` | 可用音色列表；前端拿它渲染选择器，不要硬编码 id |
 
 ## 十、待办事项

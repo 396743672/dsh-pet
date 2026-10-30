@@ -8,6 +8,7 @@
 import { publicSettings, validateSettings, type StandaloneSettingsService } from '../settings.ts';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { rejectRequest } from '../request-security.ts';
+import type { VoiceSettingsService } from '../voice-settings.ts';
 import { sendJson } from './respond.ts';
 
 /**
@@ -58,6 +59,61 @@ export function settingsHandler(
       sendJson(res, 200, publicSettings(await ai.saveSettings(input)));
     } catch {
       rejectRequest(res, 400, '设置未保存：请检查接口地址、模型名称、密钥和数值范围');
+    }
+  };
+}
+
+/**
+ * 创建语音与音效设置处理器（GET 读，POST 存）。
+ *
+ * 与 AI 设置分开一个端点：两者写的是不同文件（standalone-ai.json / main-config.jsonc），
+ * 校验规则也完全不同，混在一个 schema 里只会让任一边的字段拼错都整包失败。
+ *
+ * @param voice - 语音设置服务；缺失时回 503（独立模式之外不该挂这条路由）。
+ * @returns 处理请求的异步函数。
+ */
+export function voiceSettingsHandler(
+  voice: VoiceSettingsService | undefined,
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  let windowStart = Date.now();
+  let count = 0;
+  return async (req, res) => {
+    if (!voice) {
+      rejectRequest(res, 503, '本机语音设置尚未就绪');
+      return;
+    }
+    if (req.method === 'GET') {
+      sendJson(res, 200, voice.read());
+      return;
+    }
+    if (req.method !== 'POST') {
+      rejectRequest(res, 405, '仅支持 GET 或 POST');
+      return;
+    }
+    if (Date.now() - windowStart >= 60000) {
+      windowStart = Date.now();
+      count = 0;
+    }
+    count += 1;
+    if (count > 20) {
+      rejectRequest(res, 429, '保存过于频繁，请稍后再试');
+      return;
+    }
+    if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+      rejectRequest(res, 415, '请使用 JSON 保存设置');
+      return;
+    }
+    try {
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        req.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+        req.once('end', resolve);
+        req.once('error', reject);
+      });
+      const input = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+      sendJson(res, 200, voice.save(input));
+    } catch {
+      rejectRequest(res, 400, '语音设置未保存：请检查音色是否在可选列表内');
     }
   };
 }

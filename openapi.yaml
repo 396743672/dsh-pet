@@ -2245,16 +2245,18 @@ paths:
       operationId: synthesizeVoice
       summary: 合成一段语音
       description: |
-        把一段中文文本合成为 mp3，成功时直接返回文件本体。
+        把一段中文文本合成为音频，成功时直接返回文件本体（Edge 音色是 mp3，本地 VITS 音色是 wav）。
 
         - **合成源可被第三方覆盖**：宿主插件可经 Cordis 服务 `petApi7340.voice.register`
-          注册自己的实现；注册后本端点改走该实现，未注册时走内置实现。两边返回的都是 mp3，
-          调用方无需区分。
+          注册自己的实现；注册后本端点改走该实现，未注册时走内置实现。
+        - **内置实现按音色选源**：Edge 在线音色（`zh-CN-*`）联网合成 mp3；本地 VITS 音色
+          （`vits-*`，如 `vits-theresa` 德丽莎）在宿主 worker 线程里用 sherpa-onnx 离线推理出 wav，
+          断网可用。模型与运行时未部署时本地音色返回 `generate-error`，用仓库根 `patch.mjs` 部署。
         - 覆盖期间 `voice` 参数不生效（音色由第三方实现自己决定），但校验口径不变：
           非法值仍按 `bad-request` 拒绝。
         - 第三方实现必须返回 mp3 字节；返回其它格式浏览器播不出来，空字节按 `generate-error` 处理。
         - 同一「来源 + 音色 + 语速 + 文本」只会合成一次，命中缓存时不再联网；来源即内置实现
-          或第三方 id，因此切换实现后不会命中旧音频。
+          （edge / vits）或第三方 id，因此切换实现后不会命中旧音频。
         - 合成串行执行，同时最多排队 3 个；超出返回 `voice-busy`，调用方可稍后重试。
         - 参数问题、队列满、上游失败都是业务失败：HTTP 200 + `{ ok: false, reason, message }`。
         只有请求体不是合法 JSON 才是 400，方法不对是 405。
@@ -2273,7 +2275,7 @@ paths:
                   maxLength: 500
                 voice:
                   type: string
-                  description: 音色 id，必须来自 `/voice/voices`；缺省 `zh-CN-XiaoxiaoNeural`。
+                  description: 音色 id，必须来自 `/voice/voices`（Edge 在线 `zh-CN-*` 与本地 VITS `vits-*` 的并集）；缺省 `zh-CN-XiaoxiaoNeural`。
                 rate:
                   type: string
                   description: prosody 语速表达式，如 `+0%` / `-10%`；允许 -50%..+100%，缺省 `+0%`。
@@ -2281,10 +2283,14 @@ paths:
       responses:
         "200":
           description: |
-            成功时是 mp3 音频；失败时是 JSON `{ ok: false, reason, message }`，
+            成功时是音频文件（Edge 音色 mp3 / 本地 VITS 音色 wav）；失败时是 JSON `{ ok: false, reason, message }`，
             reason 取值 `bad-request`（参数非法）/ `voice-busy`（队列已满）/ `generate-error`（上游失败或超时）。
           content:
             audio/mpeg:
+              schema:
+                type: string
+                format: binary
+            audio/wav:
               schema:
                 type: string
                 format: binary
@@ -2310,7 +2316,7 @@ paths:
       tags: [Voice]
       operationId: getVoices
       summary: 列出可用音色
-      description: 与 `/voice/speak` 的白名单同源；前端据此渲染音色选择器，不要硬编码 id。
+      description: 与 `/voice/speak` 的白名单同源（Edge 在线音色 + 本地 VITS 音色的并集）；前端据此渲染音色选择器，不要硬编码 id。
       responses:
         "200":
           description: 音色列表。

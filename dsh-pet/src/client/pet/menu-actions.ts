@@ -9,14 +9,17 @@ import type { MenuLeaf } from '../../shared/menu.ts';
 import { ROUTE_PATH } from '../../shared/constants.ts';
 import type { Animations } from '../../shared/types.ts';
 import { postAction } from '../../shared/state.ts';
+import { playActionLine } from '../../shared/voice.ts';
 import { setMenuClick } from '../menu-service.ts';
 
 /** 菜单派发的依赖。 */
 export interface MenuActionDeps {
   /** 宠物 id：上报、点播与显示位置切换都要带。 */
   petId: string;
-  /** 该宠物的动画池（移动池、分类镜像规则都读它）。 */
+  /** 该宠物动画池（移动池、分类镜像规则都读它）。 */
   animations: () => Animations;
+  /** 逐动作台词（配置 actionVoiceLines）：动画名 → 台词；没配给空串，点播回落固定确认音。 */
+  voiceLineOf: (anim: string) => string;
   /** 当前朝向是否为右（文字类动画强制朝左前先看它）。 */
   isFacingRight: () => boolean;
   /** 把朝向改成左，并同步给换源用的事实值。 */
@@ -143,6 +146,9 @@ export function createMenuActions(deps: MenuActionDeps): MenuActions {
       return;
     }
     if (!leaf.anim) return;
+    // 点播动画出声：配了逐动作台词（actionVoiceLines）就念那句；没配就念动作名——
+    // 这样每个动作点播都有专属声音（本地合成，首次 1～2s 后入缓存）。自动轮换的待机动画不走这里。
+    playActionLine(deps.voiceLineOf(leaf.anim) || leaf.anim);
     const cuePlaybackId = playbackId ?? null;
     // 文字类朝右站姿是镜像的，点播前强制朝左；keepFacing 时跳过，显式朝向优先。
     if (!keepFacing && isNoMirrorAnimation(deps.animations().categories, leaf.anim) && deps.isFacingRight()) {

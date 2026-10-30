@@ -204,6 +204,23 @@ const petWindows = createWindows({
   topmostLevel,
   taskbarWatchdogEnabled: taskbarWatchdogEnabledFromEnv(process.env.DSH_PET_TASKBAR_WATCHDOG),
 });
+// 同进程应用（被 src/app/main.ts require）没有「重启 Helper」这回事：那边 `startHelper` 是空实现，
+// 于是设置页的 POST /reload 会静默无效——表现就是「提示正在重载、音色一直不变」。
+// 这里挂一个热重载入口给宿主半侧用：通知每个窗口重拉一次 /config，不重建窗口、不闪、位置不变。
+// 走 globalThis 而不是导出，是因为两半各自打包、宿主半侧拿不到本模块的返回值。
+if (APP_MODE) {
+  globalThis.__dshPetReloadDesktop = () => {
+    let sent = 0;
+    for (const win of petWindows.state.windows.values()) {
+      if (win.isDestroyed && win.isDestroyed()) continue;
+      win.webContents.send('pet:config-changed');
+      sent += 1;
+    }
+    console.error('[dsh-pet-desktop-helper] 配置热重载：已通知窗口数=' + sent);
+    return sent;
+  };
+}
+
 /** 托盘：显示开关与退出入口。 */
 const tray = createTray({
   app,

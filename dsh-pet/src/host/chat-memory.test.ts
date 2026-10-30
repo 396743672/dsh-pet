@@ -327,3 +327,148 @@ describe('createChatMemory —— 删除对话记忆', () => {
     }
   });
 });
+
+describe('createChatMemory —— 手动碎碎念失败必须看得见', () => {
+  /** 假 ctx：前 `failures` 次调用抛 busy，之后正常回一句话。 */
+  function busyCtx(reply: string, failures: number): unknown {
+    let calls = 0;
+    // busy 分支不用生成器（throw 之后没有 yield 可写）：直接给一个 next() 就失败的异步迭代器
+    const busy = {
+      [Symbol.asyncIterator]: () => ({
+        next: (): Promise<never> => Promise.reject(new Error('Standalone AI is busy. Please wait.')),
+      }),
+    };
+    const answer = (text: string) => ({
+      [Symbol.asyncIterator]: () =>
+        (function* () {
+          yield { type: 'text-delta', index: 0, text };
+        })(),
+    });
+    return {
+      agentDefaultModel: { currentSelection: () => ({ provider: 'test', model: 'test-model' }) },
+      llm: {
+        stream: () => {
+          calls += 1;
+          return calls <= failures ? busy : answer(reply);
+        },
+      },
+    };
+  }
+
+  /** 用指定 ctx 造一份记忆；records 记下每次写气泡的叶子与载荷。 */
+  function memoryWith(
+    ctx: unknown,
+    ws: ReturnType<typeof tempWorkspace>,
+    records: Array<{ petId: string; leaf: string; data: Record<string, unknown> }>,
+  ) {
+    return createChatMemory({
+      ctx,
+      configPaths: ws.configPaths,
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      memeDirsFor: () => [],
+      state: {
+        writePet: (petId: string, leaf: string, data: Record<string, unknown>) => {
+          records.push({ petId, leaf, data });
+        },
+      },
+      userRoot: ws.userRoot,
+    } as unknown as ChatMemoryInput);
+  }
+
+  test('一直 busy：失败原因透出，并写一条可读气泡（不再只打日志）', async () => {
+    const ws = tempWorkspace();
+    const records: Array<{ petId: string; leaf: string; data: Record<string, unknown> }> = [];
+    try {
+      const r = await memoryWith(busyCtx('不该出现', 9), ws, records).publishWhisper('main');
+      assert.equal(r.ok, false);
+      assert.match(r.ok === false ? (r.message ?? '') : '', /busy/i);
+      assert.equal(records.length, 1, '失败也要写且只写一条气泡');
+      assert.equal(records[0].petId, 'main');
+      assert.equal(records[0].leaf, 'say');
+      const text = String(records[0].data.text ?? '');
+      assert.ok(text.length > 0, '气泡必须有文案');
+      assert.equal('voiceTo' in records[0].data, false, '失败提示不该被念出来');
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('第一次 busy、重试后成功：只写正常碎碎念，不写失败提示', async () => {
+    const ws = tempWorkspace();
+    const records: Array<{ petId: string; leaf: string; data: Record<string, unknown> }> = [];
+    try {
+      const r = await memoryWith(busyCtx('本鱼回来了', 1), ws, records).publishWhisper('main');
+      assert.equal(r.ok, true);
+      assert.equal(r.ok === true ? r.text : '', '本鱼回来了');
+      assert.equal(records.length, 1);
+      assert.equal(records[0].data.text, '本鱼回来了');
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('周期碎碎念失败保持静默（不打扰、不重试）', async () => {
+    const ws = tempWorkspace();
+    const records: Array<{ petId: string; leaf: string; data: Record<string, unknown> }> = [];
+    try {
+      const r = await memoryWith(busyCtx('不该出现', 9), ws, records).publishWhisper(
+        'main',
+        undefined,
+        undefined,
+        'whisper',
+      );
+      assert.equal(r.ok, false);
+      assert.deepEqual(records, [], '自动周期失败不写气泡');
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('手动碎碎念先抢占在途请求；自动周期不抢', async () => {
+    const ws = tempWorkspace();
+    const records: Array<{ petId: string; leaf: string; data: Record<string, unknown> }> = [];
+    const spy = { preempt: 0 };
+    try {
+      const ctx = busyCtx('本鱼来了', 0) as { llm: Record<string, unknown> };
+      // 独立模式的门面才有 preempt；这里只要证明调用次数，返回值不影响断言
+      ctx.llm.preempt = () => {
+        spy.preempt += 1;
+        return true;
+      };
+      const memory = memoryWith(ctx, ws, records);
+      await memory.publishWhisper('main');
+      assert.equal(spy.preempt, 1, '手动触发必须先让后台请求让位');
+      await memory.publishWhisper('main', undefined, undefined, 'whisper');
+      assert.equal(spy.preempt, 1, '自动周期不该抢占自己');
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('超时失败要说清是连不上模型，而不是「卡壳」', async () => {
+    const ws = tempWorkspace();
+    const records: Array<{ petId: string; leaf: string; data: Record<string, unknown> }> = [];
+    // 独立模式直连不通时的真实错误：请求发出去了，但一直没有回应
+    const timeoutCtx = {
+      agentDefaultModel: { currentSelection: () => ({ provider: 'test', model: 'test-model' }) },
+      llm: {
+        stream: () => ({
+          [Symbol.asyncIterator]: () => ({
+            next: (): Promise<never> => Promise.reject(new Error('Standalone AI request cancelled or timed out.')),
+          }),
+        }),
+      },
+    };
+    try {
+      const r = await memoryWith(timeoutCtx, ws, records).publishWhisper('main');
+      assert.equal(r.ok, false);
+      assert.equal(records.length, 1);
+      const text = String(records[0].data.text ?? '');
+      assert.match(text, /连不上模型/, '失败气泡要指向网络/代理，而不是含糊的卡壳');
+      assert.match(text, /代理|接口地址/);
+      assert.equal('voiceTo' in records[0].data, false);
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+});

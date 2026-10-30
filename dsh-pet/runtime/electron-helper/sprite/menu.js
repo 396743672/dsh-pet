@@ -123,6 +123,10 @@ Object.assign(PetSprite.prototype, {
       return;
     }
     if (!leaf.anim) return;
+    // 点播动画出声：配了逐动作台词（actionVoiceLines，条目级配置经 flattenConfigPets 吹进每只
+    // 宠物）就念那句；没配就念动作名——每个动作点播都有专属声音（本地合成，首播后入缓存）。
+    // 自动轮换的待机动画不走这里，不会每几秒响一次。
+    S.playActionLine((this.pet.actionVoiceLines || {})[leaf.anim] || leaf.anim);
     // 回执归属：这一段若来自第三方点播，编号跟着换源走（自播动画传 null）
     const playbackId = typeof leaf.playbackId === 'string' && leaf.playbackId ? leaf.playbackId : null;
     // 文字类（noMirror）朝右是镜像的：点播前强制朝左，避免文字镜像。keepFacing 时跳过（显式值优先）。
@@ -169,9 +173,10 @@ Object.assign(PetSprite.prototype, {
   // image 给了就只用这张（「配图」菜单点的是具体某张）：不在池内宿主回 unknown-image，本端只记日志。
   showWhisperFromMenu(image) {
     // surface 必填：本窗口就是桌面端
-    // 桌面窗口是 file://，语音接口得走 bridge 绝对地址；标记归本端，周期碎碎念没有标记所以不播。
+    // 桌面窗口是 file://，语音接口得走 bridge 绝对地址。
+    // 「这一句该不该念」由宿主决定：带 ?surface=desktop 后宿主会把 voiceTo 写进 say 叶子，
+    // 本端 playSayVoice 按 voiceTo 判断；端侧不再记「待播标记」（该机制已在 1f19165 移除）。
     S.setVoiceBase(BASE);
-    S.markVoicePending();
     // 图名是配置里的中文键，必须编码（可能含空格与全角字符）
     const pic = image ? '&image=' + encodeURIComponent(image) : '';
     S.postAction(WHISPER_URL + '?pet=' + encodeURIComponent(this.pet.id) + '&surface=desktop' + pic)

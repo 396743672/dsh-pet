@@ -56,21 +56,66 @@ async function loadConfig() {
   };
 }
 
+/**
+ * 应用「不需要重建窗口」的全局配置：音色、音效开关、字体。
+ *
+ * 抽出来是为了让配置热重载复用同一份接线——否则热重载只要漏一行，设置页改了音色却只生效一半。
+ * @param {object} cfg - loadConfig() 的产出。
+ */
+function applyGlobalConfig(cfg) {
+  config = cfg;
+  // 语音：本窗口固定是桌面端；音色与总开关直接取成品配置，不走懒加载——
+  // 懒加载要等第一次播放才去拉 /config，撞上 bridge 起步竞态就永远读不到开关（读失败只试一次）。
+  S.setVoiceBase(BASE);
+  S.setSurface('desktop');
+  S.setVoiceConfig(cfg.voiceName, cfg.voiceEnabled);
+  // 音效（点击 / 菜单点播）与语音总开关分开管：开关来自 main.clickSoundEnabled。
+  // 必须排在 setVoiceConfig 之后——预热语气词要用到刚注入的音色。
+  S.setCueEnabled(cfg.clickSoundEnabled);
+  // 字体族进 documentElement：对话窗/得分弹窗挂在 body 下、继承不到宠物根容器，只能走全局变量。
+  // 必须等 /config 拉回来之后才设（字体族来自配置）。
+  document.documentElement.style.setProperty('--dsh-pet-font-family', S.fontStackOf(cfg.font.family));
+}
+
+/**
+ * 配置热重载：主进程在设置页保存后推 `pet:config-changed`，这里重拉一次 /config 就地更新。
+ *
+ * 只改「不用重建窗口」的量（音色、音效、字体、物理参数）——宠物位置、动画、已开的菜单都不受影响，
+ * 不会闪一下、也不会被拉回初始落点。宠物数量 / 顺序 / display 变了没法就地反映（一只宠物一个窗口），
+ * 那种情况退回整页重载，由主进程按新配置决定窗口数。
+ */
+async function reloadConfig() {
+  try {
+    const cfg = await loadConfig();
+    const before = config && config.pets ? config.pets.map((p) => p.id).join(',') : '';
+    const after = cfg.pets.map((p) => p.id).join(',');
+    applyGlobalConfig(cfg);
+    if (before && before !== after) {
+      console.info('[dsh-pet] 宠物列表变化，重载整个窗口');
+      location.reload();
+      return;
+    }
+    // 已建好的 sprite 持有自己的那份副本：物理参数与跨屏锁定必须逐个补上，否则只有下一只宠物生效
+    for (const s of sprites) {
+      s.physics = s.pet.physics || cfg.physics || S.DEFAULT_PHYSICS;
+      s.confineToScreen = s.pet.confineToScreen === true || cfg.confineToScreen === true;
+    }
+    console.info('[dsh-pet] 配置已热重载：voice=' + (cfg.voiceName || 'default') + ' cue=' + cfg.clickSoundEnabled);
+    hideError();
+  } catch (e) {
+    const msg = e && e.message ? String(e.message) : String(e);
+    // 热重载失败不该把宠物弄没：保留当前配置继续跑，只在日志里留痕
+    console.error('[dsh-pet] 配置热重载失败（沿用旧配置）：' + msg);
+  }
+}
+
 // 启动（配置校验通过才建 sprite；失败大声报错 + 5s 自动重试）
 async function boot() {
   try {
     const cfg = await loadConfig();
-    config = cfg;
-    // 语音：本窗口固定是桌面端；音色与总开关直接取成品配置，不走懒加载——
-    // 懒加载要等第一次播放才去拉 /config，撞上 bridge 起步竞态就永远读不到开关（读失败只试一次）。
-    S.setVoiceBase(BASE);
-    S.setSurface('desktop');
-    S.setVoiceConfig(cfg.voiceName, cfg.voiceEnabled);
+    applyGlobalConfig(cfg);
     bootFailures = 0;
     hideError();
-    // 字体族进 documentElement：对话窗/得分弹窗挂在 body 下、继承不到宠物根容器，只能走全局变量。
-    // 必须等 /config 拉回来之后才设（字体族来自配置）。
-    document.documentElement.style.setProperty('--dsh-pet-font-family', S.fontStackOf(cfg.font.family));
     const pets = cfg.pets.filter((p) => S.isDesktopVisible(p.display));
     if (pets.length === 0) {
       // 全部宠物只在网页显示是合法状态，不是配置错误：没有桌面宠物就表示本窗口没活儿干，
@@ -138,6 +183,14 @@ if (window.petBridge && window.petBridge.onDisplays) {
     const prevView = { x: VIEW.x, y: VIEW.y, w: VIEW.w, h: VIEW.h };
     if (!applyDeskGeometry(geo)) return;
     for (const s of sprites) s.relayout(prevView);
+  });
+}
+
+// 配置热更新（设置页保存语音/音效后主进程推来）：重拉 /config 就地换音色，不重建窗口。
+// 同进程应用没有可重启的 Helper——「重载配置」在那边就落在这条通道上，所以它会真的生效。
+if (window.petBridge && window.petBridge.onConfigChanged) {
+  window.petBridge.onConfigChanged(() => {
+    void reloadConfig();
   });
 }
 

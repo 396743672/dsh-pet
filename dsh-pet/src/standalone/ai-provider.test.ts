@@ -368,3 +368,41 @@ test('testConnection checks parameters and reports success or friendly error', a
     },
   );
 });
+
+test('preempt 让在途请求立即让位：空闲时不抢，抢占后下一次请求拿得到通道', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pet-ai-'));
+  let aborted = 0;
+  const ai = createStandaloneAi(home, silent, {
+    // 永不返回的传输：只有被 abort 才结束，正好用来占住唯一的通道
+    fetch: (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted += 1;
+          reject(new Error('aborted'));
+        });
+      }),
+  });
+  try {
+    await ai.saveSettings(config);
+    assert.equal(ai.preempt(), false, '没有在途请求时不该谎称抢到了');
+    const first = collect(ai.stream(options)).then(
+      () => 'ok',
+      (error: Error) => error.message,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(ai.preempt(), true);
+    assert.match(await first, /cancelled/, '被抢占的那次以取消收尾，不是静默成功');
+    assert.equal(aborted, 1);
+    // 标记已同步清空：紧接着的请求不会吃 busy，而是真的发出去了（因此还能再被抢占一次）
+    const second = collect(ai.stream(options)).then(
+      () => 'ok',
+      (error: Error) => error.message,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(ai.preempt(), true, '第二次请求必须已经拿到通道');
+    assert.match(await second, /cancelled/);
+  } finally {
+    ai.dispose();
+    rmSync(home, { recursive: true, force: true });
+  }
+});

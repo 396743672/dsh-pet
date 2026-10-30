@@ -26,7 +26,8 @@ function modelService() {
     },
     isReady: () => true,
     canWhisper: () => false,
-    getSettings: () => ({ whisperIntervalSec: 300 }),
+    preempt: () => false,
+    getSettings: () => ({ whisperIntervalSec: 300, timeoutMs: 30_000 }),
     dispose: () => calls.push('dispose'),
   };
 }

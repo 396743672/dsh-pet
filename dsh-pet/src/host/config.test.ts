@@ -1066,6 +1066,7 @@ describe('文件宠物条目 —— 全局默认（用户层作基座）+ 种类
     whisperModel: { provider: '', model: '' },
     chatModel: { provider: '', model: '' },
     memes: { 可爱: '卖萌' },
+    actionVoiceLines: { 吹气球: '内置默认的台词' },
   };
   /** 一个最小可用的种类文件（不含任何顶层条目级字段，全靠基座） */
   const PACK: Record<string, unknown> = {
@@ -1183,6 +1184,28 @@ describe('文件宠物条目 —— 全局默认（用户层作基座）+ 种类
     assert.deepEqual(out.main.memes, { 用户图: '用户层的表情包' });
     // 同一个用户层里，白名单字段照样继承
     assert.equal(pig.chatMemoryRounds, 9);
+  });
+
+  test('actionVoiceLines：用户层只影响 main；种类没写用内置默认，写了用自己那份', () => {
+    const out = merged({
+      overlay: { actionVoiceLines: { 吹气球: '用户层的台词' } },
+      pack: { ...PACK, actionVoiceLines: { 舞蹈: '种类自己的台词' } },
+    });
+    assert.deepEqual(rec(out.main.actionVoiceLines), { 吹气球: '用户层的台词' }, 'main：用户层写了就用用户层');
+    const pig = out.pig;
+    assert.deepEqual(
+      rec(pig.actionVoiceLines),
+      { 舞蹈: '种类自己的台词' },
+      '种类自己写了 actionVoiceLines → 用自己那份',
+    );
+  });
+
+  test('actionVoiceLines 非法（值不是非空字符串）→ 整段告警取默认', () => {
+    const out = merged({
+      overlay: { actionVoiceLines: { 吹气球: '  ' } },
+      pack: PACK,
+    });
+    assert.deepEqual(rec(out.main.actionVoiceLines), { 吹气球: '内置默认的台词' }, '空白台词 → 回落内置默认');
   });
 
   test('没有用户层 → 种类就是内置默认（等价于改动前的行为）', () => {

@@ -45,6 +45,12 @@ async function run(logger: StandaloneLogger, options: { port: number }): Promise
   let forwardShutdown: (reason: string) => void = () => {};
   const portRef = { value: options.port };
   const ai = createStandaloneAi(home, logger);
+  // 出网代理只在独立桌面应用里生效：那边有 Chromium 网络栈可以按设置下发代理规则。
+  // CLI 是纯 Node，fetch 既不读系统代理也指定不了代理——设了却不生效最容易被当成 bug，
+  // 所以这里明说一句，免得用户对着「填了代理还是超时」排查半天。
+  if (ai.getSettings().proxyUrl) {
+    logger.warn('独立模式 CLI 不支持「出网代理」设置，该字段只在桌面应用中生效；请改用系统级代理。');
+  }
   const security = createRequestSecurity();
   const context = createStandaloneContext({
     port: () => portRef.value,

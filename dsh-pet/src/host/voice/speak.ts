@@ -10,7 +10,11 @@ import { stat, writeFile } from 'node:fs/promises';
 import { cacheKey, cachePath, ensureCacheDir, pruneCache } from './cache.ts';
 import { VoiceSynthError, synthesize, type SynthInput } from './edge.ts';
 import { BUILTIN_VOICE_ID, activeVoiceProvider, type VoiceProvider } from './registry.ts';
-import { DEFAULT_VOICE, VOICES, isKnownVoice, type VoiceInfo } from './voices.ts';
+import { isLocalVoice, allVoices, VOICES, DEFAULT_VOICE, isKnownVoice, type VoiceInfo } from './voices.ts';
+import { synthesizeVits, resolveVoiceDir } from './vits.ts';
+
+/** 本地合成在缓存键里的来源标识；与第三方 id、内置 edge id 同一位。 */
+export const LOCAL_VOICE_SOURCE = 'vits';
 
 /** 单次请求允许的最大文本长度（字符，按 UTF-16 计）。 */
 export const MAX_TEXT_CHARS = 500;
@@ -36,8 +40,10 @@ interface SpeakInput {
 /** 失败原因；路由层原样映射成 `result.ts` 的 reason。 */
 export type SpeakFailure = 'bad-request' | 'voice-busy' | 'generate-error';
 
-/** 合成结果：成功时给出最终 mp3 的绝对路径。 */
-export type SpeakResult = { ok: true; file: string } | { ok: false; reason: SpeakFailure; message: string };
+/** 合成结果：成功时给出最终音频的绝对路径与内容类型（Edge 是 mp3，本地 VITS 是 wav）。 */
+export type SpeakResult =
+  | { ok: true; file: string; contentType: 'audio/mpeg' | 'audio/wav' }
+  | { ok: false; reason: SpeakFailure; message: string };
 
 /** 语音服务：路由层只依赖这两个方法。 */
 export interface VoiceService {
@@ -77,11 +83,15 @@ export function createVoiceService(options: {
   userRoot: string;
   /** 留痕用；不传则静默。只记字数与结果，不记正文（用户内容不进日志）。 */
   log?: { info?(message: string): void; warn?(message: string): void };
-  /** 合成实现；测试注入替身，缺省走 edge 的真实实现。 */
+  /** 合成实现；测试注入替身，缺省走 edge 的真实实现。只接 Edge 音色——本地音色走 {@link vitsSynthesize}。 */
   synthesize?: (input: SynthInput) => Promise<void>;
+  /** 本地 VITS 合成实现；测试注入替身，缺省走 vits 的真实实现。 */
+  vitsSynthesize?: (input: SynthInput) => Promise<void>;
 }): VoiceService {
   const { userRoot, log } = options;
   const synthesizeImpl = options.synthesize ?? synthesize;
+  // 本地音色的运行时与模型跟着插件安装目录走（`<插件包根>/voice`），与用户数据根无关
+  const vitsImpl = options.vitsSynthesize ?? ((input: SynthInput) => synthesizeVits(input, resolveVoiceDir()));
   /** 已占用的队列名额（含正在跑的那个）。 */
   let queueUsed = 0;
   /** 串行链：上一件事收尾（成功或失败）后才轮到下一件。 */
@@ -117,14 +127,15 @@ export function createVoiceService(options: {
     const { text, voice, rate } = parsed.value;
     // 每次请求现查一次：第三方可能运行中才注册、也可能被卸载，启动快照会漏掉这两种
     const provider = activeVoiceProvider();
-    const source = provider ? provider.id : BUILTIN_VOICE_ID;
+    const local = !provider && isLocalVoice(voice);
+    const source = provider ? provider.id : local ? LOCAL_VOICE_SOURCE : BUILTIN_VOICE_ID;
     // 第三方没有音色概念，缓存键里把 voice 置空；来源进键，换实现不会命中旧音频
-    const target = cachePath(userRoot, cacheKey(source, provider ? '' : voice, rate, text));
+    const target = cachePath(userRoot, cacheKey(source, provider ? '' : voice, rate, text), local ? 'wav' : 'mp3');
     const startedMs = Date.now();
     const cached = await findCached(target);
     if (cached) {
       log?.info?.(`[dsh-pet] voice speak: cache=hit chars=${text.length} voice=${source}`);
-      return { ok: true, file: cached };
+      return { ok: true, file: cached, contentType: local ? 'audio/wav' : 'audio/mpeg' };
     }
     if (queueUsed >= MAX_QUEUE) {
       log?.warn?.(`[dsh-pet] voice speak: queue full (max ${MAX_QUEUE}) chars=${text.length} voice=${source}`);
@@ -134,6 +145,7 @@ export function createVoiceService(options: {
       await enqueue(async () => {
         const dir = await ensureCacheDir(userRoot);
         if (provider) await synthesizeWithProvider(provider, { text, voice, rate, target });
+        else if (local) await vitsImpl({ text, voice, rate, target });
         else await synthesizeImpl({ text, voice, rate, target });
         // 淘汰放在成功之后：失败时不该为腾地方而删掉还能用的缓存
         await pruneCache(dir);
@@ -147,10 +159,14 @@ export function createVoiceService(options: {
       return { ok: false, reason: 'generate-error', message: 'voice synthesis failed' };
     }
     log?.info?.(`[dsh-pet] voice speak: cache=miss chars=${text.length} voice=${source} ms=${Date.now() - startedMs}`);
-    return { ok: true, file: target };
+    return { ok: true, file: target, contentType: local ? 'audio/wav' : 'audio/mpeg' };
   }
 
-  return { listVoices: () => VOICES, speak };
+  // 音色列表 = Edge 在线音色 + 本地 VITS 音色的并集；设置页下拉与 /voice/voices 都读这一份
+  return {
+    listVoices: allVoices,
+    speak,
+  };
 }
 
 /** 给一个 Promise 套超时；超时 reject，原 Promise 不被取消（provider 自己该处理放弃）。 */
