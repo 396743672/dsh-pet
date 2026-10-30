@@ -9,17 +9,26 @@ import { mkdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { BRIDGE_PREFIX } from './bridge.ts';
 import type { BridgeHandler, BridgeRequest, BridgeResponse } from './bridge.ts';
-import { defaultHelperMain, defaultLaunch, dshHomeDir } from './electron.ts';
+import { defaultHelperMain, defaultLaunch, dshHomeDir, readElectronVersion } from './electron.ts';
 import {
+  HELPER_STABLE_MS,
   HELPER_STOP_TIMEOUT_MS,
   waitForChildExit,
   RESTART_BASE_MS_DEFAULT,
   RESTART_MAX_FAILURES_DEFAULT,
+  crashLoopAdvice,
+  describeExit,
   envPositiveInt,
   helperRunIsStable,
   restartBackoffDelayMs,
   shouldCircuitBreak,
 } from './restart.ts';
+
+/** 日志里的运行时身份：` · electron=<路径> (<版本>)`；版本读不到时只留路径。 */
+function electronIdentity(electronExe: string): string {
+  const version = readElectronVersion(electronExe);
+  return ` · electron=${electronExe}${version ? ` (${version})` : ''}`;
+}
 
 /** 构造 HelperProcess 的选项；全部可选，缺省走 defaultLaunch 与 $DSH_HOME。 */
 export interface HelperOptions {
@@ -70,6 +79,8 @@ export class HelperProcess {
   declare private lastStartAt: number;
   /** stdout 按行缓冲（协议行按 \n 切分）。用 declare + 构造器赋值，避免类字段降级出外部 helper */
   declare private stdoutBuffer: string;
+  /** 最近一次拉起的运行时身份（可执行文件路径与版本）：崩溃与熔断日志都要带它 */
+  declare private launchIdentity: string;
 
   constructor(options: HelperOptions = {}, logger: Logger = console) {
     this.options = options;
@@ -80,6 +91,7 @@ export class HelperProcess {
     this.restartFailures = 0;
     this.lastStartAt = 0;
     this.stdoutBuffer = '';
+    this.launchIdentity = '';
   }
 
   /** 拉起子进程；已有子进程在跑或正在停止时直接返回现有句柄。 */
@@ -92,6 +104,8 @@ export class HelperProcess {
       : defaultLaunch(this.options);
     const command = launch.command;
     const args = this.options.args || launch.args;
+    // 版本只在这里读一次：崩溃时退出码能说明「怎么死的」，说明不了「死的哪个版本」，而那才是排障入口
+    this.launchIdentity = electronIdentity(command);
 
     // cwd 必须落在包目录之外：Windows 不允许重命名或删除活进程的当前目录，否则 pnpm 无法 rename
     // 覆盖 node_modules/dsh-pet。Helper 侧资源解析与 CWD 无关，故用 $DSH_HOME。
@@ -109,21 +123,31 @@ export class HelperProcess {
       windowsHide: true,
     });
     this.child = child;
+    // 「启动成功」在 spawn 返回后立刻可写，但那时进程可能正在崩：#244 的日志里就有
+    // 「started」紧跟着「exited」。等满稳定阈值仍活着再补一行，两者才区分得开。
+    const stableTimer = setTimeout(() => {
+      if (this.child === child && !this.stopping) {
+        this.logger.info?.(`dsh-pet desktop helper stable for ${HELPER_STABLE_MS / 60_000}m${this.launchIdentity}`);
+      }
+    }, HELPER_STABLE_MS);
+    stableTimer.unref?.();
     child.once('error', (error) => {
-      this.logger.error?.(`dsh-pet desktop helper failed to start: ${error.message}`);
+      this.logger.error?.(`dsh-pet desktop helper failed to start: ${error.message}${this.launchIdentity}`);
       // spawn 失败（ENOENT / EACCES）只发 error 不发 exit：不能留一个没跑起来的子进程挡住之后每次
       // start；而活着的进程报错（例如 kill 失败）必须继续等它的 exit。
       if (child.pid === undefined && this.child === child) {
         this.child = undefined;
+        clearTimeout(stableTimer);
         this.scheduleRestart();
       }
     });
     child.once('exit', (code, signal) => {
       if (this.child !== child) return;
       this.child = undefined;
+      clearTimeout(stableTimer);
       if (!this.stopping) {
         this.logger.warn?.(
-          `dsh-pet desktop helper exited (code=${String(code)}, signal=${String(signal)}); restarting`,
+          `dsh-pet desktop helper exited (${describeExit(code, signal)})${this.launchIdentity}; restarting`,
         );
         this.scheduleRestart();
       }
@@ -251,9 +275,11 @@ export class HelperProcess {
       this.restartFailures += 1;
     }
     if (shouldCircuitBreak(this.restartFailures, this.resolveMaxFailures())) {
+      // 熔断是用户最后一次能看见的机会：只说「熔断」和 Linux 的 DISPLAY 建议，等于让 Windows 用户
+      // 既不知道死的是哪个版本，也拿不到能照着做的下一步（#244 的现场）。
       this.logger.error?.(
         `dsh-pet desktop helper crashed ${this.restartFailures} consecutive times; circuit breaker tripped, ` +
-          `no more restarts. Fix the environment (e.g. DISPLAY/headless) or set DSH_PET_RESTART_MAX_FAILURES to raise the limit.`,
+          `no more restarts${this.launchIdentity} · 建议：${crashLoopAdvice(process.platform)}`,
       );
       return;
     }

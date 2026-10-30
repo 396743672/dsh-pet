@@ -20,12 +20,15 @@ import {
   HELPER_STABLE_MS,
   HELPER_STOP_GRACE_MS,
   HelperProcess,
+  crashLoopAdvice,
+  describeExit,
   dshHomeDir,
   defaultElectronExe,
   ensureElectronDownload,
   hasGraphicalDisplay,
   helperRunIsStable,
   helperSpawnEnv,
+  readElectronVersion,
   restartBackoffDelayMs,
   resolveElectronPath,
   shouldCircuitBreak,
@@ -301,6 +304,75 @@ describe('helperRunIsStable —— 稳定运行 ≥3 分钟后计数清零', () 
   test('达到 3 分钟：稳定，应清零', () => {
     assert.equal(helperRunIsStable(HELPER_STABLE_MS), true);
     assert.equal(helperRunIsStable(10 * 60 * 1000), true);
+  });
+});
+
+describe('describeExit —— 崩溃退出码翻成可读片段', () => {
+  test('访问违例：无符号与有符号两种报法指向同一个 0xC0000005', () => {
+    assert.equal(describeExit(3221225477, null), 'code=3221225477 (0xC0000005 访问违例), signal=null');
+    assert.equal(describeExit(-1073741819, null), 'code=-1073741819 (0xC0000005 访问违例), signal=null');
+  });
+
+  test('断点：0x80000003 标注为沙箱初始化失败', () => {
+    assert.equal(describeExit(2147483651, null), 'code=2147483651 (0x80000003 断点（沙箱初始化失败）), signal=null');
+  });
+
+  test('普通退出码不补十六进制：避免把 exit 1 写成 0x1', () => {
+    assert.equal(describeExit(1, null), 'code=1, signal=null');
+    assert.equal(describeExit(0, null), 'code=0, signal=null');
+  });
+
+  test('未收录的 NTSTATUS：只给十六进制，不编造含义', () => {
+    assert.equal(describeExit(3221225725, null), 'code=3221225725 (0xC00000FD), signal=null');
+  });
+
+  test('被信号终止：code=null，信号原样带上', () => {
+    assert.equal(describeExit(null, 'SIGKILL'), 'code=null, signal=SIGKILL');
+  });
+});
+
+describe('crashLoopAdvice —— 熔断建议按平台分支', () => {
+  test('Windows：给换版本与指向现成可执行文件，不提 DISPLAY', () => {
+    const advice = crashLoopAdvice('win32');
+    assert.match(advice, /DSH_PET_ELECTRON_VERSION/);
+    assert.match(advice, /DSH_PET_ELECTRON_PATH/);
+    assert.match(advice, /DSH_PET_RESTART_MAX_FAILURES/);
+    assert.ok(!advice.includes('DISPLAY'), 'Windows 上建议配 DISPLAY 是误导');
+  });
+
+  test('Linux：给显示环境与 Xvfb 逃生口', () => {
+    const advice = crashLoopAdvice('linux');
+    assert.match(advice, /DISPLAY/);
+    assert.match(advice, /DSH_PET_DESKTOP_FORCE=1/);
+  });
+
+  test('macOS：指向现成可执行文件，不提显示环境', () => {
+    const advice = crashLoopAdvice('darwin');
+    assert.match(advice, /DSH_PET_ELECTRON_PATH/);
+    assert.ok(!advice.includes('DISPLAY'));
+  });
+});
+
+describe('readElectronVersion —— 读落地目录里的 version 文件', () => {
+  test('正常读取：内容去掉换行后返回', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pet-version-'));
+    try {
+      writeFileSync(join(dir, 'version'), '43.3.0\n');
+      assert.equal(readElectronVersion(join(dir, 'electron.exe')), '43.3.0');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('文件缺失或内容不是版本号：返回 undefined，不编造', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-pet-version-'));
+    try {
+      assert.equal(readElectronVersion(join(dir, 'electron.exe')), undefined);
+      writeFileSync(join(dir, 'version'), 'not-a-version');
+      assert.equal(readElectronVersion(join(dir, 'electron.exe')), undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

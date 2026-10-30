@@ -6,8 +6,8 @@
  * @module dsh-pet/src/host/helper/electron
  */
 import { createRequire } from 'node:module';
-import { join, resolve } from 'node:path';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { type LoggerLike } from '../log-file.ts';
 import { PACKAGE_ROOT } from '../paths.ts';
 import type { HelperOptions } from './child.ts';
@@ -108,6 +108,23 @@ export function electronLandingDir(): string {
 /** Electron 落地路径：$DSH_HOME/electron/<按平台的可执行文件>。 */
 export function defaultElectronExe(): string {
   return join(electronLandingDir(), ELECTRON_REL);
+}
+
+/**
+ * 读 Electron 安装目录里的版本号。
+ *
+ * 官方压缩包自带与可执行文件同级的 `version` 文件（如 `43.3.0`），读它比再 spawn 一次 `--version`
+ * 便宜得多。崩溃排障时「哪个版本」是退出码看不出来的唯一关键信息，所以日志必须带上。
+ * @param electronExe - Electron 可执行文件绝对路径。
+ * @returns 版本号；文件缺失或内容不像版本号时 undefined（调用方省略这一段，不编造）。
+ */
+export function readElectronVersion(electronExe: string): string | undefined {
+  try {
+    const version = readFileSync(join(dirname(electronExe), 'version'), 'utf8').trim();
+    return /^\d+\.\d+\.\d+/.test(version) ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 进程内下载 Electron 的选项。 */
